@@ -1,0 +1,53 @@
+# QuickSnap
+
+Menu bar screenshot utility for macOS, inspired by CleanShot X. Lives in the menu bar (no Dock icon), captures via ScreenCaptureKit, and keeps the whole flow on-device.
+
+## Features
+
+- **Capture modes** — area (drag to select), window (hover to highlight), and full screen, working across multiple displays.
+- **Text recognition** — select an area and the recognized text (Vision OCR) goes straight to the clipboard.
+- **After capture** — save to disk, copy to the clipboard, and show a floating preview thumbnail; each action individually toggleable.
+- **Preview panel** — a PIP-style floating thumbnail with quick actions: reveal in Finder, copy, edit, or drag the file out into another app.
+- **Annotation editor** — PencilKit-backed markup canvas (via PaperKit) with pen, highlighter, eraser, shapes, arrows, text, crop, color and stroke-width presets. Exports flattened at full resolution via Copy or Save As; the original file is never overwritten.
+- **Window backgrounds** — window captures can be composited onto your wallpaper or a solid color with padding and a soft shadow.
+- **Global hotkeys** — configurable in Settings; defaults below.
+
+| Action | Default shortcut |
+| --- | --- |
+| Capture area | ⌘⇧7 |
+| Capture window | ⌘⇧8 |
+| Capture full screen | ⌘⇧9 |
+| Recognize text (OCR) | ⌘⇧0 |
+
+Screenshots are saved as `QuickSnap yyyy-MM-dd at HH.mm.ss.png` in `~/Documents/QuickSnap` by default (configurable in Settings).
+
+## Requirements
+
+- macOS 26.5 or later
+- Xcode 26 to build
+
+## Building
+
+```
+xcodebuild -project QuickSnap.xcodeproj -scheme QuickSnap -configuration Debug build
+```
+
+Or open `QuickSnap.xcodeproj` in Xcode and run the `QuickSnap` scheme.
+
+## Permissions
+
+QuickSnap needs **Screen Recording** access (System Settings → Privacy & Security). macOS often doesn't apply a freshly granted permission to an already-running process — relaunch QuickSnap after granting it.
+
+The app is **not sandboxed** so it can write captures directly to the save folder without a save panel on every shot. This means it isn't Mac App Store-distributable as-is.
+
+## Project layout
+
+```
+QuickSnap/
+  QuickSnapApp.swift     — MenuBarExtra entry point
+  Views/                 — UI only (overlay, preview, annotation, settings)
+  Coordinators/          — state + window lifecycles; wire Views to Services
+  Services/              — stateless operations: capture, file I/O, OCR, settings
+```
+
+Architecture notes, layering rules, and the non-obvious platform gotchas are documented in [CLAUDE.md](CLAUDE.md).
