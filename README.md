@@ -6,6 +6,7 @@ Menu bar screenshot utility for macOS, inspired by CleanShot X. Lives in the men
 
 - **Capture modes** — area (drag to select), window (hover to highlight), and full screen, working across multiple displays.
 - **Text recognition** — select an area and the recognized text (Vision OCR) goes straight to the clipboard.
+- **MCP server** — let an AI coding agent capture through QuickSnap: screenshot a named window or display, read text off the screen with on-device OCR, or fetch a capture you just took, without you handling a single file. Off by default; enable it in Settings → Integrations, which prints the client configuration to paste. Listens only on `127.0.0.1`, behind a token kept in the Keychain.
 - **Copy for AI** — one shortcut copies the screenshot *and* its context (the app it came from, when it was taken, and the text QuickSnap can read in it) as a markdown block, so a single paste gives a chat or coding tool the whole picture instead of a bare image.
 - **After capture** — save to disk, copy to the clipboard, and show a floating preview thumbnail; each action individually toggleable.
 - **Preview panel** — a PIP-style floating thumbnail with quick actions: reveal in Finder, copy, edit, or drag the file out into another app.
@@ -60,4 +61,5 @@ Architecture notes, layering rules, and the non-obvious platform gotchas are doc
 - [motion-design.md](docs/motion-design.md) — house animation and feedback conventions.
 - [files-and-retention.md](docs/files-and-retention.md) — filename templates, image formats, and how retention safely deletes only QuickSnap's own files.
 - [uploading.md](docs/uploading.md) — the upload provider architecture, the Immich and S3 integrations, how the SigV4 signing is verified, and the ATS setup for LAN servers.
+- [mcp.md](docs/mcp.md) — the MCP server: why it's HTTP rather than stdio, what the tools do, and how the socket is secured.
 - [intelligence.md](docs/intelligence.md) — the Copy for AI clipboard hand-off, and the on-device `AIProvider` seam (including what the system model can't do).

@@ -6,6 +6,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
     case markup = "Markup"
     case hotkeys = "Hotkeys"
     case uploading = "Uploading"
+    case integrations = "Integrations"
     case advanced = "Advanced"
     case about = "About"
 
@@ -21,6 +22,8 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             return "command"
         case .uploading:
             return "arrow.up.circle.fill"
+        case .integrations:
+            return "puzzlepiece.extension.fill"
         case .advanced:
             return "slider.horizontal.3"
         case .about:
@@ -49,6 +52,12 @@ enum SettingsSection: String, CaseIterable, Identifiable {
                 red: 34 / 255,
                 green: 166 / 255,
                 blue: 179 / 255
+            )
+        case .integrations:
+            return Color(
+                red: 112 / 255,
+                green: 111 / 255,
+                blue: 211 / 255
             )
         case .advanced:
             return Color(
@@ -136,6 +145,9 @@ struct SettingsView: View {
 
         case .uploading:
             UploadingSettingsView()
+
+        case .integrations:
+            IntegrationsSettingsView()
 
         case .advanced:
             AdvancedSettingsView()

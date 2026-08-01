@@ -18,6 +18,7 @@ nonisolated enum KeychainStore {
     enum Account {
         static let immichAPIKey = "immich.apiKey"
         static let s3SecretKey = "s3.secretAccessKey"
+        static let mcpAuthToken = "mcp.authToken"
     }
 
     enum KeychainError: LocalizedError {

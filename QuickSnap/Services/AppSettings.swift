@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import Security
 
 /// How a Window-mode capture is presented. Everything except `trimShadow`
 /// pads the window out and draws a soft shadow behind it; `trimShadow` is
@@ -98,6 +99,8 @@ nonisolated enum AppSettings {
         static let showTextPreviewInToast = "showTextPreviewInToast"
         static let copyForAIIncludesText = "copyForAIIncludesText"
         static let aiEnabled = "aiEnabled"
+        static let mcpEnabled = "mcpEnabled"
+        static let mcpPort = "mcpPort"
         static let windowBackgroundStyle = "windowBackgroundStyle"
         static let windowBackgroundPadding = "windowBackgroundPadding"
         static let windowBackgroundColor = "windowBackgroundColor"
@@ -159,6 +162,11 @@ nonisolated enum AppSettings {
         /// Off until the user asks for it. Nothing runs a model behind their
         /// back, even an on-device one.
         static let aiEnabled = false
+        /// Off by default: it opens a socket that can screenshot the user's
+        /// display, which nobody should get without asking for it.
+        static let mcpEnabled = false
+        /// Unassigned by IANA and not in common use, so it rarely collides.
+        static let mcpPort = 8787
         static let windowBackgroundStyle = WindowBackgroundStyle.transparent
         /// Points; multiplied by the screen's backing scale at render time.
         static let windowBackgroundPadding = 40.0
@@ -479,6 +487,47 @@ nonisolated enum AppSettings {
         bool(forKey: Keys.aiEnabled, default: Defaults.aiEnabled)
     }
 
+    // MARK: - MCP server
+
+    static var isMCPServerEnabled: Bool {
+        bool(forKey: Keys.mcpEnabled, default: Defaults.mcpEnabled)
+    }
+
+    /// Loopback port for the MCP endpoint. Clamped above the privileged range
+    /// so a stored nonsense value can't make the listener fail silently.
+    static var mcpServerPort: UInt16 {
+        let stored = UserDefaults.standard.object(forKey: Keys.mcpPort) as? Int
+        return UInt16(min(max(stored ?? Defaults.mcpPort, 1024), 65_535))
+    }
+
+    /// The bearer token MCP clients must present, generated on first use and
+    /// kept in the Keychain — never in UserDefaults, since anything running
+    /// as the user can read a defaults plist, and this token authorises
+    /// screenshots.
+    ///
+    /// Returns nil only if the Keychain write fails, which leaves the server
+    /// rejecting every request rather than accepting unauthenticated ones.
+    @discardableResult
+    static func mcpAuthToken() -> String? {
+        if let existing = KeychainStore.string(for: KeychainStore.Account.mcpAuthToken) {
+            return existing
+        }
+        return regenerateMCPAuthToken()
+    }
+
+    @discardableResult
+    static func regenerateMCPAuthToken() -> String? {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        let token = Data(bytes).base64EncodedString()
+        do {
+            try KeychainStore.setString(token, for: KeychainStore.Account.mcpAuthToken)
+            return token
+        } catch {
+            return nil
+        }
+    }
+
     // MARK: - Reset
 
     /// Clears every stored setting and both Keychain secrets — the Advanced
@@ -493,6 +542,7 @@ nonisolated enum AppSettings {
             Keys.previewPosition, Keys.toastPosition, Keys.previewAutoDismissSeconds,
             Keys.toastAutoDismissSeconds, Keys.showTextPreviewInToast,
             Keys.copyForAIIncludesText, Keys.aiEnabled,
+            Keys.mcpEnabled, Keys.mcpPort,
             Keys.windowBackgroundStyle, Keys.windowBackgroundPadding, Keys.windowBackgroundColor,
             Keys.markupDefaultColor, Keys.markupDefaultStrokeStep,
             Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,
@@ -510,6 +560,7 @@ nonisolated enum AppSettings {
         }
         try? KeychainStore.remove(KeychainStore.Account.immichAPIKey)
         try? KeychainStore.remove(KeychainStore.Account.s3SecretKey)
+        try? KeychainStore.remove(KeychainStore.Account.mcpAuthToken)
     }
 
     /// Current shortcut for `action`, nil when explicitly cleared. The

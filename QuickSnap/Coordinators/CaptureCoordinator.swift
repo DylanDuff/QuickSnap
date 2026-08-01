@@ -29,14 +29,27 @@ final class CaptureCoordinator: ObservableObject {
         }
     }
 
+    /// What an overlay session produced, for the callers that want the
+    /// selection itself rather than the default follow-on behaviour.
+    enum SelectionResult {
+        case area(CGRect, NSScreen)
+        case window(SCWindow, NSScreen)
+    }
+
     private var overlayWindows: [SelectionOverlayWindow] = []
     private var isSessionActive = false
     private var sessionKind: SelectionSessionKind = .area
+    /// Set only while a caller is awaiting a selection (currently just the
+    /// MCP server). When it's set the delegate hands the result straight
+    /// back instead of running the normal capture flow.
+    private var sessionContinuation: CheckedContinuation<SelectionResult?, Never>?
+    private var sessionTimeout: Task<Void, Never>?
     private let previewController = ScreenshotPreviewController()
     private let annotationCoordinator = AnnotationCoordinator()
     private let hotkeyCoordinator = HotkeyCoordinator()
     private let toastController = ToastController()
     private let uploadCoordinator = UploadCoordinator()
+    private let mcpCoordinator = MCPCoordinator()
 
     init() {
         AppSettings.migrateLegacySettings()
@@ -51,6 +64,8 @@ final class CaptureCoordinator: ObservableObject {
             }
         }
         hotkeyCoordinator.start()
+        mcpCoordinator.host = self
+        mcpCoordinator.startIfEnabled()
         ZoomResizeProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         runRetentionCleanup()
     }
@@ -184,6 +199,40 @@ final class CaptureCoordinator: ObservableObject {
         isSessionActive = false
     }
 
+    // MARK: - Awaited selection
+
+    /// Runs a selection session and returns what the user picked, or nil if
+    /// they cancelled or ran out of time. Used by the MCP server, which
+    /// needs the selection as a value rather than as a side effect.
+    private func awaitSelection(kind: SelectionSessionKind, timeout: TimeInterval) async throws -> SelectionResult? {
+        guard !isSessionActive else { throw MCPToolError.captureSessionBusy }
+        let content = try await ScreenCaptureManager.shareableContent()
+
+        return await withCheckedContinuation { continuation in
+            sessionContinuation = continuation
+            startOverlaySession(kind: kind, content: content)
+            sessionTimeout = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(timeout))
+                guard !Task.isCancelled else { return }
+                self?.endSelectionSession()
+                self?.completeSession(nil)
+            }
+        }
+    }
+
+    /// Hands `result` to whoever is awaiting the session, and reports whether
+    /// anyone was — a false return means the delegate should carry on with
+    /// the normal capture flow.
+    @discardableResult
+    private func completeSession(_ result: SelectionResult?) -> Bool {
+        guard let continuation = sessionContinuation else { return false }
+        sessionContinuation = nil
+        sessionTimeout?.cancel()
+        sessionTimeout = nil
+        continuation.resume(returning: result)
+        return true
+    }
+
     private func screen(forOverlay view: SelectionOverlayView) -> NSScreen? {
         guard let window = view.window else { return nil }
         return NSScreen.screens.first { $0.frame == window.frame }
@@ -216,19 +265,30 @@ final class CaptureCoordinator: ObservableObject {
         }
     }
 
+    /// Captures `rect` (in the overlay's flipped, screen-local point space)
+    /// from `screen`. The one path from a selected rectangle to pixels —
+    /// shared by the area capture, OCR, Copy for AI and MCP flows.
+    private func captureArea(
+        _ rect: CGRect,
+        on screen: NSScreen,
+        showsCursor: Bool = AppSettings.showsCursorInCaptures
+    ) async throws -> CGImage {
+        let content = try await ScreenCaptureManager.shareableContent()
+        guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
+            throw ScreenCaptureManagerError.displayNotFound
+        }
+        return try await ScreenCaptureManager.captureArea(
+            rect: rect,
+            display: display,
+            scale: screen.backingScaleFactor,
+            showsCursor: showsCursor
+        )
+    }
+
     private func captureSelectedArea(_ rect: CGRect, on screen: NSScreen) {
         Task {
             do {
-                let content = try await ScreenCaptureManager.shareableContent()
-                guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
-                    throw ScreenCaptureManagerError.displayNotFound
-                }
-                let image = try await ScreenCaptureManager.captureArea(
-                    rect: rect,
-                    display: display,
-                    scale: screen.backingScaleFactor,
-                    showsCursor: AppSettings.showsCursorInCaptures
-                )
+                let image = try await captureArea(rect, on: screen)
                 await finish(
                     with: image,
                     screen: screen,
@@ -247,11 +307,7 @@ final class CaptureCoordinator: ObservableObject {
     private func recognizeTextInArea(_ rect: CGRect, on screen: NSScreen) {
         Task {
             do {
-                let content = try await ScreenCaptureManager.shareableContent()
-                guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
-                    throw ScreenCaptureManagerError.displayNotFound
-                }
-                let image = try await ScreenCaptureManager.captureArea(rect: rect, display: display, scale: screen.backingScaleFactor)
+                let image = try await captureArea(rect, on: screen, showsCursor: false)
                 let text = try await TextRecognizer.recognizeText(in: image)
 
                 if text.isEmpty {
@@ -282,16 +338,7 @@ final class CaptureCoordinator: ObservableObject {
     private func copyContextForAI(_ rect: CGRect, on screen: NSScreen) {
         Task {
             do {
-                let content = try await ScreenCaptureManager.shareableContent()
-                guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
-                    throw ScreenCaptureManagerError.displayNotFound
-                }
-                let image = try await ScreenCaptureManager.captureArea(
-                    rect: rect,
-                    display: display,
-                    scale: screen.backingScaleFactor,
-                    showsCursor: AppSettings.showsCursorInCaptures
-                )
+                let image = try await captureArea(rect, on: screen)
                 // Read before awaiting anything else: the frontmost app is
                 // what the user was looking at, and an alert or another app
                 // stealing focus mid-flow would change the answer.
@@ -472,9 +519,11 @@ final class CaptureCoordinator: ObservableObject {
 
 extension CaptureCoordinator: SelectionOverlayViewDelegate {
     func selectionOverlayView(_ view: SelectionOverlayView, didSelectAreaRect rect: CGRect) {
-        guard let screen = screen(forOverlay: view) else { endSelectionSession(); return }
+        guard let screen = screen(forOverlay: view) else { endSelectionSession(); completeSession(nil); return }
         let kind = sessionKind
         endSelectionSession()
+
+        guard !completeSession(.area(rect, screen)) else { return }
 
         switch kind {
         case .textRecognition:
@@ -487,12 +536,160 @@ extension CaptureCoordinator: SelectionOverlayViewDelegate {
     }
 
     func selectionOverlayView(_ view: SelectionOverlayView, didSelectWindow window: SCWindow) {
-        guard let screen = screen(forOverlay: view) else { endSelectionSession(); return }
+        guard let screen = screen(forOverlay: view) else { endSelectionSession(); completeSession(nil); return }
         endSelectionSession()
+        guard !completeSession(.window(window, screen)) else { return }
         captureSelectedWindow(window, on: screen)
     }
 
     func selectionOverlayViewDidCancel(_ view: SelectionOverlayView) {
         endSelectionSession()
+        completeSession(nil)
     }
+}
+
+
+// MARK: - MCP
+
+/// The capture surface the MCP server drives.
+///
+/// Agent-initiated captures deliberately **do not** run the after-capture
+/// actions. An agent asked for the pixels; saving a file, overwriting the
+/// user's clipboard and popping a preview panel on every tool call would be
+/// noise the user never asked for — and the tool result already hands back a
+/// path. Window captures skip `WindowBackgroundRenderer` for the same
+/// reason: a wallpaper-padded presentation shot is worse input than the bare
+/// window.
+extension CaptureCoordinator: MCPCaptureHost {
+    func captureInteractiveArea(timeout: TimeInterval) async throws -> CGImage? {
+        try requireScreenRecordingPermission()
+        guard case .area(let rect, let screen)? = try await awaitSelection(kind: .area, timeout: timeout) else {
+            return nil
+        }
+        return try await captureArea(rect, on: screen)
+    }
+
+    func captureWindow(matchingApp app: String, title: String?) async throws -> (image: CGImage, description: String) {
+        try requireScreenRecordingPermission()
+        let window = try await matchingWindow(app: app, title: title)
+        let screen = screen(containing: window)
+        let image = try await ScreenCaptureManager.captureWindow(
+            window,
+            scale: screen?.backingScaleFactor ?? 2,
+            showsCursor: false
+        )
+        announceAgentCapture(on: screen)
+        return (image, Self.describe(window))
+    }
+
+    func captureDisplay(index: Int?) async throws -> CGImage {
+        try requireScreenRecordingPermission()
+        let screens = NSScreen.screens
+        let screen: NSScreen?
+        if let index {
+            guard screens.indices.contains(index) else {
+                throw MCPToolError.displayNotFound(available: screens.count)
+            }
+            screen = screens[index]
+        } else {
+            screen = screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        }
+        guard let screen else { throw MCPToolError.displayNotFound(available: screens.count) }
+
+        let content = try await ScreenCaptureManager.shareableContent()
+        guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
+            throw ScreenCaptureManagerError.displayNotFound
+        }
+        let image = try await ScreenCaptureManager.captureFullScreen(
+            display: display,
+            scale: screen.backingScaleFactor,
+            showsCursor: false
+        )
+        announceAgentCapture(on: screen)
+        return image
+    }
+
+    func recognizeText(matchingApp app: String?, title: String?) async throws -> String {
+        try requireScreenRecordingPermission()
+        let image: CGImage
+        if let app {
+            let window = try await matchingWindow(app: app, title: title)
+            image = try await ScreenCaptureManager.captureWindow(
+                window,
+                scale: screen(containing: window)?.backingScaleFactor ?? 2
+            )
+            announceAgentCapture(on: screen(containing: window))
+        } else {
+            image = try await captureDisplay(index: nil)
+        }
+        return try await TextRecognizer.recognizeText(in: image)
+    }
+
+    func capturableWindows() async throws -> [String] {
+        try requireScreenRecordingPermission()
+        let content = try await ScreenCaptureManager.shareableContent()
+        return ScreenCaptureManager.capturableWindows(in: content).map(Self.describe)
+    }
+
+    // MARK: Support
+
+    private func requireScreenRecordingPermission() throws {
+        // Deliberately doesn't call `ensurePermission()`: that runs a modal
+        // NSAlert, which would block the server's response until the user
+        // happened to notice and dismiss it.
+        guard ScreenRecordingPermission.isGranted else {
+            throw MCPToolError.screenRecordingDenied
+        }
+    }
+
+    /// The frontmost capturable window whose app (and optionally title)
+    /// matches. `SCShareableContent` is ordered front to back, so first match
+    /// is the one the user is most likely to mean.
+    private func matchingWindow(app: String, title: String?) async throws -> SCWindow {
+        let content = try await ScreenCaptureManager.shareableContent()
+        let candidates = ScreenCaptureManager.capturableWindows(in: content)
+        let match = candidates.first { window in
+            guard let appName = window.owningApplication?.applicationName,
+                  appName.localizedCaseInsensitiveContains(app)
+            else {
+                return false
+            }
+            guard let title else { return true }
+            return window.title?.localizedCaseInsensitiveContains(title) == true
+        }
+        guard let match else {
+            throw MCPToolError.windowNotFound(app: app, available: candidates.map(Self.describe))
+        }
+        return match
+    }
+
+    private func screen(containing window: SCWindow) -> NSScreen? {
+        let frame = Self.screenFrame(forQuartzRect: window.frame)
+        return NSScreen.screens.max { first, second in
+            first.frame.intersection(frame).area < second.frame.intersection(frame).area
+        }
+    }
+
+    /// A capture an agent asked for happens with no other visible sign, so
+    /// the toast is the user's only indication that something read their
+    /// screen. Interactive selection doesn't need it — the overlay was the
+    /// notice.
+    private func announceAgentCapture(on screen: NSScreen?) {
+        guard let screen = screen ?? NSScreen.main else { return }
+        toastController.show(
+            message: "Screenshot shared with \(MCPProtocol.serverName)",
+            systemImage: "sparkles",
+            on: screen
+        )
+    }
+
+    private static func describe(_ window: SCWindow) -> String {
+        let appName = window.owningApplication?.applicationName ?? "Unknown"
+        guard let title = window.title, !title.isEmpty, title != appName else { return appName }
+        return "\(appName) — \(title)"
+    }
+}
+
+private extension CGRect {
+    var area: CGFloat { isNull ? 0 : width * height }
 }
