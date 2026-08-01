@@ -82,6 +82,8 @@ struct IntelligenceSettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            MCPSettingsSection()
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)

@@ -4,7 +4,7 @@ QuickSnap can expose its capture surface to MCP clients, so an AI coding
 agent can screenshot a window or read text off the screen itself instead of
 waiting to be handed a file.
 
-Off by default. Settings → Integrations turns it on and prints the client
+Off by default. Settings → Intelligence turns it on and prints the client
 configuration to paste.
 
 ## Why HTTP and not stdio
@@ -111,7 +111,7 @@ rather than resolving it.
 
 ```bash
 BASE=http://127.0.0.1:8787/mcp
-AUTH="Authorization: Bearer <token from Settings → Integrations>"
+AUTH="Authorization: Bearer <token from Settings → Intelligence>"
 
 curl -s -X POST $BASE -H "$AUTH" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'

@@ -1,18 +1,24 @@
 //
-//  IntegrationsSettingsView.swift
+//  MCPSettingsSection.swift
 //  QuickSnap
 //
 
 import SwiftUI
 import AppKit
 
-/// Integrations tab: currently the MCP server, which lets an AI coding agent
-/// drive QuickSnap's captures directly.
+/// The MCP server's sections of the Intelligence tab: it lets an AI coding
+/// agent drive QuickSnap's captures directly, which is the same subject as
+/// the rest of that page — it had its own "Integrations" tab while it was
+/// the only thing on it, which read as a category with one member.
 ///
-/// The page's real job is the config snippet. The server is useless until the
-/// client knows the URL and the token, and asking someone to assemble that by
-/// hand from three fields is where this feature would otherwise be abandoned.
-struct IntegrationsSettingsView: View {
+/// The section's real job is the config snippet. The server is useless until
+/// the client knows the URL and the token, and asking someone to assemble
+/// that by hand from three fields is where this feature would otherwise be
+/// abandoned.
+///
+/// Sections rather than a `Form` of its own, so it drops into the
+/// Intelligence page's form alongside everything else.
+struct MCPSettingsSection: View {
     @AppStorage(AppSettings.Keys.mcpEnabled)
     private var isEnabled = AppSettings.Defaults.mcpEnabled
 
@@ -25,7 +31,7 @@ struct IntegrationsSettingsView: View {
     @State private var didCopyConfiguration = false
 
     var body: some View {
-        Form {
+        Group {
             Section("MCP Server") {
                 Toggle("Let AI tools capture through QuickSnap", isOn: $isEnabled)
 
@@ -93,8 +99,6 @@ struct IntegrationsSettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .onChange(of: port) { didCopyConfiguration = false }
     }
 
