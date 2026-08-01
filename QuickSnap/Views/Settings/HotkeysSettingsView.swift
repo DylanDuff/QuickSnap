@@ -26,7 +26,7 @@ struct HotkeysSettingsView: View {
             }
 
             Section {
-                Text("Shortcuts work system-wide while QuickSnap is running. Click a shortcut to change it; press Delete while recording to remove it.")
+                Text("Shortcuts work system-wide while QuickSnap is running. Click one to change it, or ✕ to remove it — an action with no shortcut still works from the menu bar, and stops taking that key combination away from other apps.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -66,17 +66,43 @@ struct HotkeyRecorderField: View {
     }
 
     var body: some View {
-        Button {
-            isRecording ? stopRecording() : beginRecording()
-        } label: {
-            Text(isRecording ? "Type shortcut…" : (shortcut?.displayString ?? "None"))
-                .font(.body.monospaced())
-                .foregroundStyle(isRecording ? .secondary : .primary)
-                .frame(minWidth: 96)
+        HStack(spacing: 6) {
+            Button {
+                isRecording ? stopRecording() : beginRecording()
+            } label: {
+                Text(isRecording ? "Type shortcut…" : (shortcut?.displayString ?? "None"))
+                    .font(.body.monospaced())
+                    .foregroundStyle(isRecording ? .secondary : .primary)
+                    .frame(minWidth: 96)
+            }
+            .buttonStyle(.bordered)
+            .tint(isRecording ? .accentColor : nil)
+
+            // Clearing was only reachable by pressing Delete *while
+            // recording*, which nobody discovers. Kept in the layout at zero
+            // opacity when there's nothing to clear, so the recorder buttons
+            // stay aligned down the column.
+            Button {
+                clear()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(PressScaleButtonStyle())
+            .help("Remove this shortcut. The action stays in the menu bar.")
+            .opacity(shortcut == nil ? 0 : 1)
+            .disabled(shortcut == nil)
+            .accessibilityHidden(shortcut == nil)
         }
-        .buttonStyle(.bordered)
-        .tint(isRecording ? .accentColor : nil)
         .onDisappear { stopRecording() }
+    }
+
+    /// Empty `Data` means *explicitly cleared*, as opposed to an absent key
+    /// meaning "use the action's default" — so this sticks across launches
+    /// instead of the default being registered back over it.
+    private func clear() {
+        storedData = Data()
+        stopRecording()
     }
 
     private func beginRecording() {
@@ -100,8 +126,7 @@ struct HotkeyRecorderField: View {
         case kVK_Escape:
             stopRecording()
         case kVK_Delete:
-            storedData = Data()
-            stopRecording()
+            clear()
         default:
             guard let newShortcut = HotkeyShortcut(event: event) else {
                 NSSound.beep()
