@@ -91,7 +91,7 @@ struct MCPSettingsSection: View {
                     ToolSummaryRow(name: "capture_window / capture_screen", detail: "Screenshots a window or display without asking.")
                     ToolSummaryRow(name: "read_screen_text", detail: "Reads on-screen text with on-device OCR, no image.")
                     ToolSummaryRow(name: "list_windows", detail: "Lists what's open, so an agent can pick a window.")
-                    ToolSummaryRow(name: "list_recent_captures / get_capture", detail: "Reads screenshots QuickSnap saved — never other files in the folder.")
+                    ToolSummaryRow(name: "list_recent_captures / search_captures / get_capture", detail: "Finds and reads screenshots QuickSnap saved — never other files in the folder.")
 
                     Text("QuickSnap shows a confirmation whenever an agent captures something you didn't trigger yourself.")
                         .font(.footnote)

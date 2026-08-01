@@ -208,7 +208,7 @@ actor CaptureIndex {
                 appName: nonEmptyString(from: statement, at: 2),
                 windowTitle: nonEmptyString(from: statement, at: 3),
                 caption: nonEmptyString(from: statement, at: 4),
-                snippet: string(from: statement, at: 6) ?? "",
+                snippet: Self.flattened(string(from: statement, at: 6)),
                 modifiedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 5))
             ))
         }
@@ -217,6 +217,18 @@ actor CaptureIndex {
             try? deleteRows(forPath: path, in: database)
         }
         return results
+    }
+
+    /// A transcript is OCR output, one line per observation, so a snippet cut
+    /// from it arrives as a vertical column of fragments — unreadable in a
+    /// one-line list row and needless bulk in an MCP response. Collapsing to
+    /// single spaces is done here rather than in either consumer, since
+    /// neither wants the line breaks.
+    private static func flattened(_ snippet: String?) -> String {
+        (snippet ?? "")
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     /// Turns whatever was typed into an FTS5 MATCH expression.

@@ -67,6 +67,7 @@ and `[String: Any]` from `JSONSerialization` is not `Sendable`.
 | `read_screen_text` | no | Vision OCR, text only, no image — much cheaper when you only need to *read* something. |
 | `list_windows` | no | What's on screen, frontmost first. |
 | `list_recent_captures` | no | Saved captures, newest first. |
+| `search_captures` | no | Ranked matches from the capture index — by text in the image, description, name, app or window. |
 | `get_capture` | no | One saved capture by name. |
 
 Two deliberate departures from the original issue:
@@ -77,6 +78,13 @@ Two deliberate departures from the original issue:
   error *listing what is open*, which is directly actionable.
 - **`list_windows` was added.** It's the companion that stops an agent from
   having to guess-and-fail.
+- **`search_captures` was added** once the capture index existed
+  (`docs/search.md`). `list_recent_captures` only answers "the one just
+  taken"; a user describing a screenshot from last week needs the index, and
+  the agent gets the same ranking the search panel does. It returns names,
+  paths and a snippet — **not images** — because handing a model ten
+  screenshots to pick between is exactly the context blow-up the result shape
+  below exists to avoid; `get_capture` is the follow-up.
 
 ### Result shape
 
@@ -100,12 +108,15 @@ on-screen window matches "Xcode". Currently open: …").
 
 ### What agents can't reach
 
-`list_recent_captures` and `get_capture` only ever see files carrying
-QuickSnap's `FileTag` xattr — the same invariant that makes retention safe.
+`list_recent_captures`, `search_captures` and `get_capture` only ever see
+files carrying QuickSnap's `FileTag` xattr — the same invariant that makes retention safe.
 The save folder is user-chosen and the app is unsandboxed, so an unfiltered
 listing would let a client enumerate and fetch files QuickSnap never wrote.
 `get_capture` also rejects any name containing a path separator outright
-rather than resolving it.
+rather than resolving it. `search_captures` inherits the same guarantee for
+free: the index is only ever fed tagged captures, and it drops rows whose
+file has disappeared. Its query text can't reach FTS5's own syntax either —
+see `docs/search.md`.
 
 ## Verifying by hand
 

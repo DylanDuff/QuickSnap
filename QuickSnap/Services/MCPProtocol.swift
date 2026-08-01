@@ -121,6 +121,7 @@ nonisolated enum MCPProtocol {
         case readScreenText = "read_screen_text"
         case listWindows = "list_windows"
         case listRecentCaptures = "list_recent_captures"
+        case searchCaptures = "search_captures"
         case getCapture = "get_capture"
 
         /// Whether the tool puts a selection overlay on screen and waits for
@@ -204,9 +205,28 @@ nonisolated enum MCPProtocol {
                 ]
             )
 
+        case .searchCaptures:
+            return tool.descriptor(
+                description: """
+                    Find a saved screenshot by what is in it. Searches the text \
+                    QuickSnap read out of each capture, its description, its \
+                    file name, and the app and window it came from — so \
+                    "immich album settings" or an error message you remember \
+                    seeing will find it. Use this instead of \
+                    list_recent_captures when the user is describing a capture \
+                    rather than pointing at a recent one. Returns names and \
+                    paths, not images; follow up with get_capture.
+                    """,
+                properties: [
+                    "query": .stringProperty("What to look for — plain words, not a search syntax."),
+                    "limit": .integerProperty("How many to return. Defaults to 10, maximum 50."),
+                ],
+                required: ["query"]
+            )
+
         case .getCapture:
             return tool.descriptor(
-                description: "Return a saved screenshot by the name given by list_recent_captures.",
+                description: "Return a saved screenshot by the name given by list_recent_captures or search_captures.",
                 properties: [
                     "name": .stringProperty("The capture's file name, including its extension."),
                 ],

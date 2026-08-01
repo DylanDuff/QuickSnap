@@ -78,11 +78,18 @@ transcribe into a database.
 
 ### Backfill
 
-On first launch after the feature lands (and after "Rebuild"), the folder is
-walked and everything already in it is indexed. Background priority, one file
-at a time, cancellable from Settings; the "done" marker is only set when the
-walk actually finishes, so stopping and coming back resumes rather than
-restarts. Files whose modification date matches what was indexed are skipped.
+Every launch diffs the folder against the index and works through whatever
+is missing — which on first run is everything, and after that is usually
+nothing. Background priority, one file at a time, cancellable from Settings.
+Files whose modification date matches what was indexed are skipped, so
+stopping halfway and coming back resumes rather than restarts.
+
+**There is deliberately no "already backfilled" flag.** The first version had
+one and it went wrong immediately: the flag outlived the database it was
+describing (delete the `.sqlite` and the walk never re-ran), leaving search
+silently empty forever. A diff costs one directory listing and one `SELECT`
+per launch, is self-correcting, and needs no special case for "the user
+turned indexing on later" or "a capture came back out of the Trash".
 
 Backfilled rows have no app or window — those aren't recoverable from the
 file. The transcript is what makes them findable and that's the part that
@@ -126,6 +133,20 @@ Two decisions worth keeping:
 An empty query lists the most recent captures rather than showing nothing:
 the panel is a way into the save folder, and "the one I just took" is the
 most common thing being looked for.
+
+## Over MCP
+
+`search_captures` exposes the same ranking to an agent (`docs/mcp.md`), so
+"find the screenshot where that error appeared" works without the user
+handling a path. It returns names, paths, captions and a flattened snippet —
+never images, since handing a model ten screenshots to choose between is the
+context blow-up the MCP result shape exists to avoid. `get_capture` is the
+follow-up once it has picked one.
+
+The snippet is flattened to single spaces in `CaptureIndex.search` rather
+than by either caller: a transcript is OCR output with one line per
+observation, so a raw snippet arrives as a vertical column of fragments —
+unreadable in a list row and needless bulk in an MCP response.
 
 ## Verifying
 

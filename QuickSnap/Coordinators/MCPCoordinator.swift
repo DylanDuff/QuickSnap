@@ -337,6 +337,12 @@ final class MCPCoordinator {
             case .listRecentCaptures:
                 return listRecentCaptures(limit: arguments["limit"]?.intValue ?? 10)
 
+            case .searchCaptures:
+                guard let query = arguments.trimmedString("query") else {
+                    return MCPProtocol.toolFailure("`query` is required.")
+                }
+                return await searchCaptures(query: query, limit: arguments["limit"]?.intValue ?? 10)
+
             case .getCapture:
                 guard let name = arguments.trimmedString("name") else {
                     return MCPProtocol.toolFailure("`name` is required.")
@@ -364,6 +370,32 @@ final class MCPCoordinator {
         let formatter = ISO8601DateFormatter()
         let lines = entries.map { entry in
             "- \(entry.name) — \(formatter.string(from: entry.modifiedAt)), \(entry.byteCount / 1024) KB\n  \(entry.url.path)"
+        }
+        return MCPProtocol.toolResult(text: [lines.joined(separator: "\n")])
+    }
+
+    /// Ranked matches from the capture index, as names and paths rather than
+    /// images — a model looking for the right screenshot shouldn't be handed
+    /// ten of them base64'd into its context. `get_capture` is the follow-up.
+    ///
+    /// Nothing here can reach files QuickSnap didn't write: the index only
+    /// ever holds tagged captures, and it drops rows whose file has gone.
+    private func searchCaptures(query: String, limit: Int) async -> JSONValue {
+        let results = (try? await CaptureIndex.shared.search(query, limit: min(max(limit, 1), 50))) ?? []
+        guard !results.isEmpty else {
+            return MCPProtocol.toolResult(text: [
+                "No saved capture matches \"\(query)\". Captures are only searchable if indexing is on in QuickSnap's settings.",
+            ])
+        }
+
+        let formatter = ISO8601DateFormatter()
+        let lines = results.map { result -> String in
+            var line = "- \(result.url.lastPathComponent) — \(formatter.string(from: result.modifiedAt))"
+            if let caption = result.caption { line += "\n  Shows: \(caption)" }
+            if let appName = result.appName { line += "\n  From: \(appName)" }
+            if !result.snippet.isEmpty { line += "\n  Text: \(result.snippet)" }
+            line += "\n  \(result.url.path)"
+            return line
         }
         return MCPProtocol.toolResult(text: [lines.joined(separator: "\n")])
     }
