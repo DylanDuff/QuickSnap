@@ -3,6 +3,14 @@
 Pushes captures to a remote destination. One provider is active at a time,
 chosen in Settings → Uploading.
 
+## Before an upload leaves
+
+Every path into a provider goes through `UploadCoordinator.upload`, which
+scans the capture for credentials first and **holds** the upload if it finds
+any — see `docs/redaction.md`. A held upload deliberately never reaches
+`beginUpload`, so it doesn't show the progress pill or touch the
+reference-counted reporting described below; it is not a failed upload.
+
 ## Architecture
 
 The feature is provider-agnostic end to end. Everything outside `Services/`

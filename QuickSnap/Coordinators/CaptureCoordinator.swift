@@ -503,7 +503,7 @@ final class CaptureCoordinator: ObservableObject {
                 ScreenshotSaver.copyToClipboard(image)
             }
             if AppSettings.uploadsAfterCapture {
-                uploadCoordinator.upload(image, on: screen)
+                upload(image, file: file, on: screen)
             }
             if AppSettings.showsPreviewAfterCapture {
                 // The panel offers Upload only when Immich is configured and
@@ -519,7 +519,7 @@ final class CaptureCoordinator: ObservableObject {
                     scale: screen.backingScaleFactor,
                     anchor: anchor,
                     onUpload: offersUpload
-                        ? { [weak self] image in self?.uploadCoordinator.upload(image, on: screen) }
+                        ? { [weak self] image in self?.upload(image, file: file, on: screen) }
                         : nil,
                     onEdit: { [weak self] image, file in
                         self?.annotationCoordinator.openAnnotationWindow(image: image, file: file)
@@ -591,6 +591,21 @@ final class CaptureCoordinator: ObservableObject {
         guard let renamed else { return }
         file.moved(to: renamed)
         captureIndexer.captureMoved(from: currentURL, to: renamed)
+    }
+
+    /// Uploads a capture, with the redaction gate wired to the annotation
+    /// window: if the capture turns out to hold credentials, nothing is sent
+    /// — the window opens with the findings under review instead, and the
+    /// upload only continues from there, carrying whatever the user left
+    /// behind (see `docs/redaction.md`).
+    private func upload(_ image: CGImage, file: CaptureFile, on screen: NSScreen?) {
+        uploadCoordinator.upload(image, on: screen) { [weak self] flagged, matches, proceed in
+            self?.annotationCoordinator.openAnnotationWindow(
+                image: flagged,
+                file: file,
+                heldUpload: AnnotationCoordinator.HeldUpload(matches: matches, proceed: proceed)
+            )
+        }
     }
 
     // MARK: - Search

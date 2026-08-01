@@ -63,6 +63,36 @@ final class MarkupCanvasController: nonisolated ObservableObject {
             if isCropActive { pendingInsertion = nil }
         }
     }
+    /// Regions a detector flagged as sensitive, still visible in the image.
+    /// Non-empty means `RedactionOverlay` is up: the user clicks a region to
+    /// black it out, or takes all of them at once. Emptying this dismisses
+    /// the review.
+    @Published var pendingRedactions: [SensitiveMatch] = [] {
+        didSet {
+            if !pendingRedactions.isEmpty {
+                pendingInsertion = nil
+                isCropActive = false
+                hasReviewedSensitiveContent = true
+            }
+        }
+    }
+
+    /// Set once findings have been put in front of the user in this window.
+    ///
+    /// It's what stops the gate from looping: after the review, an upload
+    /// from this window skips the check, so choosing to keep something
+    /// flagged doesn't hold the very next upload for the same reason and
+    /// pop a second review over the first.
+    private(set) var hasReviewedSensitiveContent = false
+
+    /// Set when the window was opened *because* an upload was held. The
+    /// review bar then offers to carry that upload on, with whatever the
+    /// image looks like once the user is done — otherwise there'd be no way
+    /// to complete it except a toolbar button that's hidden by default.
+    ///
+    /// A closure the coordinator wires, like `AnnotationView`'s outputs —
+    /// this class still touches no Services.
+    var continueHeldUpload: ((CGImage) -> Void)?
     @Published var color: Color {
         didSet { applyTool() }
     }
@@ -292,6 +322,60 @@ final class MarkupCanvasController: nonisolated ObservableObject {
         markup.transformContent(CGAffineTransform(translationX: -clamped.minX, y: -clamped.minY))
         markup.bounds = canvasBounds
         viewController.markup = markup
+    }
+
+    // MARK: - Redaction
+
+    /// Paints out `matches` and drops them from the review.
+    ///
+    /// Unlike an inserted shape, this replaces the base image's pixels
+    /// (`Redactor`) — the covered text is gone from the document, not
+    /// covered by an object that could be moved, deleted or missed by an
+    /// export path. That's the difference between a redaction and a black
+    /// rectangle, and the reason this lives here rather than going through
+    /// `insertNewShape`.
+    ///
+    /// Not undoable, like crop: PaperKit's undo stack only covers user
+    /// canvas edits, and an undo that could bring a credential back would be
+    /// the wrong feature anyway.
+    func redact(_ matches: [SensitiveMatch]) {
+        guard !matches.isEmpty else { return }
+        baseImage = Redactor.redacting(baseImage, rects: matches.map(\.rect))
+
+        let redacted = Set(matches.map(\.id))
+        pendingRedactions.removeAll { redacted.contains($0.id) }
+    }
+
+    /// Blacks out everything found and, when an upload is waiting on this
+    /// review, sends it on with the redacted pixels.
+    func redactAllPending() {
+        redact(pendingRedactions)
+        finishHeldUpload()
+    }
+
+    /// Leaves the flagged regions in place — the user has looked and decided
+    /// they're fine. Any held upload stays held: "keep" is a statement about
+    /// the image, not permission to send it.
+    func dismissRedactionReview() {
+        pendingRedactions = []
+        continueHeldUpload = nil
+    }
+
+    /// "Upload Anyway": send the capture as it stands.
+    func uploadHeldCaptureAsIs() {
+        pendingRedactions = []
+        finishHeldUpload()
+    }
+
+    /// Hands the held upload the canvas as it stands — flattened, so any
+    /// markup made during the review goes with it, and over the redacted
+    /// base image rather than the one that was flagged.
+    private func finishHeldUpload() {
+        guard let continueHeldUpload else { return }
+        self.continueHeldUpload = nil
+        Task {
+            continueHeldUpload(await exportFlattened() ?? baseImage)
+        }
     }
 
     // MARK: - Export

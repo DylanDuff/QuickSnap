@@ -118,6 +118,7 @@ nonisolated enum AppSettings {
         static let uploadAfterCapture = "uploadAfterCapture"
         static let uploadCopiesLink = "uploadCopiesLink"
         static let uploadShowsPreviewButton = "uploadShowsPreviewButton"
+        static let checkUploadsForSensitiveContent = "checkUploadsForSensitiveContent"
         // …and each provider's own configuration, kept prefixed.
         static let immichServerURL = "immichServerURL"
         static let immichAlbumID = "immichAlbumID"
@@ -194,6 +195,11 @@ nonisolated enum AppSettings {
         /// happen without the user asking.
         static let uploadCopiesLink = false
         static let uploadShowsPreviewButton = true
+        /// On by default, unlike most things that run analysis: this is
+        /// local OCR plus regexes, and the failure it prevents — a
+        /// credential in a public URL — has no undo. Auto-upload is the
+        /// feature people don't switch on because of exactly this risk.
+        static let checkUploadsForSensitiveContent = true
         static let immichServerURL = ""
         /// Empty = upload to the library without filing it into an album.
         static let immichAlbumID = ""
@@ -460,6 +466,13 @@ nonisolated enum AppSettings {
         bool(forKey: Keys.uploadShowsPreviewButton, default: Defaults.uploadShowsPreviewButton)
     }
 
+    /// Whether captures are scanned for credentials before they're
+    /// uploaded, holding the upload when something turns up. See
+    /// `SensitiveContentDetector`.
+    static var checksUploadsForSensitiveContent: Bool {
+        bool(forKey: Keys.checkUploadsForSensitiveContent, default: Defaults.checkUploadsForSensitiveContent)
+    }
+
     /// Per-request timeout for upload providers, in seconds.
     static var uploadTimeoutSeconds: TimeInterval {
         let value = double(forKey: Keys.uploadTimeoutSeconds, default: Defaults.uploadTimeoutSeconds)
@@ -562,6 +575,7 @@ nonisolated enum AppSettings {
             Keys.markupShowsUploadButton,
             Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
             Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
+            Keys.checkUploadsForSensitiveContent,
             Keys.immichServerURL, Keys.immichAlbumID, Keys.immichAlbumName,
             Keys.s3Endpoint, Keys.s3Region, Keys.s3Bucket, Keys.s3AccessKeyID,
             Keys.s3KeyPrefix, Keys.s3PublicBaseURL, Keys.s3UsesPathStyle, Keys.s3PublicRead,

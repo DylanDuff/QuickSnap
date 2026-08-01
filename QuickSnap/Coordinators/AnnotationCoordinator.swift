@@ -59,13 +59,27 @@ final class AnnotationCoordinator: NSObject {
     /// toasts, so it isn't shared with `toastController`.
     private let uploadCoordinator = UploadCoordinator()
 
+    /// An upload that was stopped because the capture looked like it carried
+    /// credentials: what was found, and how to carry on once the user has
+    /// dealt with it. The annotation window becomes the review surface.
+    struct HeldUpload {
+        let matches: [SensitiveMatch]
+        /// Called with the image as it stands when the user chooses to go
+        /// ahead — redacted, or not, depending on what they did.
+        let proceed: (CGImage) -> Void
+    }
+
     /// `file` carries a nil URL when the capture was never saved to disk
     /// (the "Save" after-capture action is off) — the window then falls back
     /// to the timestamped naming convention for its title and Save As…
     /// suggestion. It's a reference so a `{describe}` rename landing after
     /// the window opened moves the title and the suggested name with it
     /// (see `CaptureFile`).
-    func openAnnotationWindow(image: CGImage, file: CaptureFile) {
+    ///
+    /// `heldUpload` opens the window straight into the redaction review,
+    /// which is how an automatic upload that found credentials ends up in
+    /// front of the user instead of on a server.
+    func openAnnotationWindow(image: CGImage, file: CaptureFile, heldUpload: HeldUpload? = nil) {
         let imageSize = CGSize(width: image.width, height: image.height)
         let aspect = imageSize.width / imageSize.height
         let contentSize = Self.initialContentSize(forImageSize: imageSize)
@@ -100,6 +114,14 @@ final class AnnotationCoordinator: NSObject {
             defaultStrokeStep: AppSettings.markupDefaultStrokeStep
         )
 
+        if let heldUpload {
+            canvas.continueHeldUpload = heldUpload.proceed
+            // Assigned last: this is what mounts `RedactionOverlay`, and it
+            // needs the continuation already in place to offer to finish the
+            // upload.
+            canvas.pendingRedactions = heldUpload.matches
+        }
+
         let toolbar = MarkupToolbarPanel(
             controller: canvas,
             onCopy: { ScreenshotSaver.copyToClipboard($0) },
@@ -116,7 +138,17 @@ final class AnnotationCoordinator: NSObject {
                 self.uploadCoordinator.upload(
                     flattened,
                     filename: "\(Self.annotatedName(forOriginal: file.url)).\(AppSettings.imageFormat.fileExtension)",
-                    on: window?.screen ?? NSScreen.main
+                    on: window?.screen ?? NSScreen.main,
+                    // Already reviewed in this window — checking again would
+                    // hold the upload for findings the user has just made a
+                    // decision about, and stack a second review on the first.
+                    checksForSensitiveContent: !canvas.hasReviewedSensitiveContent,
+                    onHeld: { [weak canvas] _, matches, proceed in
+                        // Review in the window the upload came from rather
+                        // than opening another one onto the same capture.
+                        canvas?.continueHeldUpload = proceed
+                        canvas?.pendingRedactions = matches
+                    }
                 )
             },
             // Unlike its neighbours this closure is `@Sendable` and runs off

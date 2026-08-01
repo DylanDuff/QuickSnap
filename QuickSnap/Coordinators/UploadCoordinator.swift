@@ -26,6 +26,21 @@ final class UploadCoordinator {
     private let toastController = ToastController()
     private var activeUploads = 0
 
+    /// What to do instead of uploading when a capture turns out to contain
+    /// credentials: the capture, what was found, and a closure that carries
+    /// on with the upload once the user has seen it.
+    ///
+    /// Passed per call rather than stored on the coordinator, because it
+    /// belongs to the *caller's* context — which window to put the review
+    /// in, which canvas to arm. A stored handler would be overwritten by a
+    /// second upload starting during the first one's OCR pass, and the
+    /// review would open against the wrong capture.
+    /// `proceed` takes the image **as the user left it** — redacted, or
+    /// deliberately not. It must not close over the original capture: the
+    /// whole point of the review is that what finally goes out is different
+    /// from what came in.
+    typealias HeldUploadHandler = @MainActor (CGImage, [SensitiveMatch], _ proceed: @escaping (CGImage) -> Void) -> Void
+
     /// True once a provider is switched on and fully configured — what the
     /// optional upload buttons key off.
     var isConfigured: Bool {
@@ -34,7 +49,23 @@ final class UploadCoordinator {
 
     /// Uploads `image`, naming it `filename` (the timestamped convention by
     /// default, matching what a local save would be called).
-    func upload(_ image: CGImage, filename: String? = nil, on screen: NSScreen?) {
+    ///
+    /// `checksForSensitiveContent: false` is the "Upload Anyway" path — the
+    /// user has seen what was found and decided. Nothing else should pass
+    /// false: the check lives here precisely so that *every* route to a
+    /// provider goes through it (automatic, preview panel, markup toolbar),
+    /// rather than each caller being trusted to remember.
+    ///
+    /// A caller with no `onHeld` handler can't review anything, so it isn't
+    /// scanned — there would be nothing to do with the answer but block the
+    /// upload with no way forward.
+    func upload(
+        _ image: CGImage,
+        filename: String? = nil,
+        on screen: NSScreen?,
+        checksForSensitiveContent: Bool = true,
+        onHeld: HeldUploadHandler? = nil
+    ) {
         let targetScreen = screen ?? NSScreen.main
         guard let destination = AppSettings.uploadDestination else {
             report(
@@ -53,9 +84,31 @@ final class UploadCoordinator {
         let capturedAt = Date()
         let retryLimit = AppSettings.uploadRetryCount
 
-        beginUpload(to: destination, on: targetScreen)
-
         Task {
+            // Deliberately before `beginUpload`: a held upload is not an
+            // upload that started and stopped. Showing the progress pill and
+            // then taking it away would report a failure that never
+            // happened, and would disturb the reference count that keeps
+            // concurrent uploads reporting once.
+            if checksForSensitiveContent, let onHeld,
+               let held = await findings(holdingUploadOf: image) {
+                report(
+                    message: "Upload held",
+                    systemImage: "exclamationmark.shield.fill",
+                    detail: "\(held.count == 1 ? "Something" : "\(held.count) things") in this capture looked sensitive.",
+                    on: targetScreen
+                )
+                onHeld(image, held) { [weak self] reviewed in
+                    // The user has now seen the findings, so this pass
+                    // doesn't scan again — and it sends `reviewed`, which is
+                    // the redacted image when they redacted and the original
+                    // when they chose to go ahead regardless.
+                    self?.upload(reviewed, filename: filename, on: screen, checksForSensitiveContent: false)
+                }
+                return
+            }
+
+            beginUpload(to: destination, on: targetScreen)
             defer { endUpload() }
             do {
                 // Encoding a full-resolution screenshot is real CPU work —
@@ -96,6 +149,23 @@ final class UploadCoordinator {
                 )
             }
         }
+    }
+
+    /// Scans `image` and returns everything found — but **only when
+    /// something in it is confident enough to hold the upload for**.
+    ///
+    /// The distinction is what keeps this feature switched on. An email
+    /// address or a hash appears in a large share of screenshots; stopping
+    /// every one of those would train people to turn the check off within a
+    /// day, and then a real key goes out unchecked. So low-confidence kinds
+    /// never interrupt — but once something *has* interrupted, they're shown
+    /// alongside it, since the user is already looking.
+    private func findings(holdingUploadOf image: CGImage) async -> [SensitiveMatch]? {
+        guard AppSettings.checksUploadsForSensitiveContent else { return nil }
+
+        let matches = await SensitiveContentDetector.detect(in: image)
+        guard matches.contains(where: { $0.kind.holdsUpload }) else { return nil }
+        return matches
     }
 
     /// Retries only failures that could plausibly succeed on a second try:

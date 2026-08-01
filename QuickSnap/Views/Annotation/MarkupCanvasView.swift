@@ -67,6 +67,10 @@ struct MarkupCanvasView: NSViewControllerRepresentable {
         private var enforcementTarget: CGRect?
         weak var imageView: NSImageView?
         var appliedImage: CGImage?
+        /// The canvas bounds the current image was applied at — how a crop
+        /// (bounds changed, re-fit) is told apart from a redaction (same
+        /// bounds, leave the viewport alone).
+        private var appliedBounds: CGRect?
 
         func observeViewportEvents(of viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
             // Reads canvasBounds from the controller at notification time
@@ -195,12 +199,21 @@ struct MarkupCanvasView: NSViewControllerRepresentable {
         /// ratio (those frame-change steps see it active and stand back).
         func applyBaseImage(_ image: CGImage, controller: MarkupCanvasController, to viewController: PaperMarkupViewController) {
             guard image !== appliedImage else { return }
+            let bounds = controller.canvasBounds
+            let boundsChanged = appliedBounds != bounds
             appliedImage = image
-            imageView?.image = NSImage(cgImage: image, size: controller.canvasBounds.size)
-            imageView?.frame = controller.canvasBounds
+            appliedBounds = bounds
+            imageView?.image = NSImage(cgImage: image, size: bounds.size)
+            imageView?.frame = bounds
+
+            // A crop changes the canvas, so the viewport has to be re-fitted.
+            // A redaction replaces the same-sized pixels, and re-fitting
+            // there would yank the user out of wherever they had zoomed to
+            // in order to read what they were redacting.
+            guard boundsChanged else { return }
             appliedFitZoom = 0
-            ZoomResizeProbe.log("applyBaseImage: enforcing fit of new canvas \(controller.canvasBounds.size)")
-            enforceViewport(controller.canvasBounds, of: viewController, controller: controller)
+            ZoomResizeProbe.log("applyBaseImage: enforcing fit of new canvas \(bounds.size)")
+            enforceViewport(bounds, of: viewController, controller: controller)
         }
 
         /// Viewport frame changed, preserving the *relative* zoom (the

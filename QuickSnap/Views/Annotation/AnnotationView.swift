@@ -52,7 +52,11 @@ struct AnnotationView: View {
             // input, which is wanted during those interactions and
             // harmful otherwise.
             .overlay {
-                if canvas.pendingInsertion != nil {
+                if !canvas.pendingRedactions.isEmpty {
+                    // First: a held upload is waiting on this, and it's the
+                    // only overlay the user didn't ask for by picking a tool.
+                    RedactionOverlay(controller: canvas)
+                } else if canvas.pendingInsertion != nil {
                     ShapeInsertionOverlay(controller: canvas)
                 } else if canvas.isCropActive {
                     CropOverlay(controller: canvas)

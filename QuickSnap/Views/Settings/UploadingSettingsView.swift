@@ -26,6 +26,9 @@ struct UploadingSettingsView: View {
     @AppStorage(AppSettings.Keys.uploadCopiesLink)
     private var copiesLink = AppSettings.Defaults.uploadCopiesLink
 
+    @AppStorage(AppSettings.Keys.checkUploadsForSensitiveContent)
+    private var checksForSensitiveContent = AppSettings.Defaults.checkUploadsForSensitiveContent
+
     @AppStorage(AppSettings.Keys.uploadShowsPreviewButton)
     private var showsPreviewButton = AppSettings.Defaults.uploadShowsPreviewButton
 
@@ -66,6 +69,20 @@ struct UploadingSettingsView: View {
                     Text(linkToggleFootnote)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+
+                Section("Before Uploading") {
+                    Toggle("Check captures for credentials", isOn: $checksForSensitiveContent)
+
+                    Text("Reads the capture on this Mac and looks for things like API keys, tokens, private keys and card numbers. When it finds one, the upload is held and the capture opens for you to black it out first — nothing is sent until you've seen it.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if !checksForSensitiveContent {
+                        Text("With this off, captures are uploaded exactly as taken. A visible key in a screenshot becomes a link you can't take back.")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                 }
 
                 Section("Upload Buttons") {
