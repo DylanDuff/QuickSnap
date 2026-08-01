@@ -86,7 +86,16 @@ restarts. Files whose modification date matches what was indexed are skipped.
 
 Backfilled rows have no app or window — those aren't recoverable from the
 file. The transcript is what makes them findable and that's the part that
-matters.
+matters. Note this applies after every "Rebuild" too, not just the first
+walk: rebuilding trades the app and window of every on-save row for fresh
+captions.
+
+The fix, if that ever matters, is to write the app, window and capture date
+into an extended attribute beside `FileTag` at save time, so the file
+carries its own provenance and a rebuild recovers it. Considered and
+deliberately deferred (2026-08-01): it only helps captures taken after it
+ships, and the transcript already carries most of what makes a capture
+findable.
 
 This is OCR over every capture the user has ever taken, which is the one
 genuinely expensive thing here. It's the trade the issue asked for: a folder
