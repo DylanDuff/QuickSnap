@@ -29,6 +29,12 @@ struct QuickSnapApp: App {
     @AppStorage(AppSettings.Keys.hotkey(for: .searchCaptures))
     private var searchHotkeyData = Data()
 
+    /// Searching means nothing without an index, so the item goes away with
+    /// it — read here rather than checked once so the menu follows the
+    /// setting live.
+    @AppStorage(AppSettings.Keys.captureIndexingEnabled)
+    private var isIndexingEnabled = AppSettings.Defaults.captureIndexingEnabled
+
     var body: some Scene {
         MenuBarExtra("QuickSnap", systemImage: "camera.viewfinder") {
             Button("Capture Area") {
@@ -60,10 +66,12 @@ struct QuickSnapApp: App {
 
             Divider()
 
-            Button("Search Captures…") {
-                captureCoordinator.showCaptureSearch()
+            if isIndexingEnabled {
+                Button("Search Captures…") {
+                    captureCoordinator.showCaptureSearch()
+                }
+                .keyboardShortcut(HotkeyShortcut.decode(searchHotkeyData)?.menuShortcut)
             }
-            .keyboardShortcut(HotkeyShortcut.decode(searchHotkeyData)?.menuShortcut)
 
             Button("Open QuickSnap Folder") {
                 captureCoordinator.openSaveFolder()

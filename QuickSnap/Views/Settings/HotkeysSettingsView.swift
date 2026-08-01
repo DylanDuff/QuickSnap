@@ -8,11 +8,17 @@ import AppKit
 import Carbon.HIToolbox
 
 struct HotkeysSettingsView: View {
+    /// Not read directly — it's what makes the list re-render when the
+    /// setting behind `HotkeyAction.isAvailable` changes, so the Search row
+    /// appears and disappears with the feature it triggers.
+    @AppStorage(AppSettings.Keys.captureIndexingEnabled)
+    private var isIndexingEnabled = AppSettings.Defaults.captureIndexingEnabled
+
     var body: some View {
-        
+
         Form {
             Section("Capture") {
-                ForEach(HotkeyAction.allCases, id: \.self) { action in
+                ForEach(HotkeyAction.allCases.filter(\.isAvailable), id: \.self) { action in
                     LabeledContent(action.displayName) {
                         HotkeyRecorderField(action: action)
                     }

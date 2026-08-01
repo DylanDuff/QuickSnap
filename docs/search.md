@@ -115,6 +115,15 @@ Spotlight-shaped: borderless, centered in the upper third, opened from the
 menu bar or ⌘⇧2 (`HotkeyAction.searchCaptures`). Return reveals in Finder,
 ⌘Return opens the capture for markup, Esc closes, clicking away closes.
 
+**With indexing switched off, none of that exists** — no menu item, no
+registered shortcut, no row in the Hotkeys tab (`HotkeyAction.isAvailable`).
+That isn't only tidiness: `RegisterEventHotKey` *consumes* the keystroke
+system-wide, so a shortcut for a feature that can't run would silently
+swallow ⌘⇧2 in every other app. The stored shortcut is left untouched, so
+switching indexing back on restores whatever the user recorded, and
+`HotkeyCoordinator` re-applies registrations on every UserDefaults change,
+so both directions take effect immediately.
+
 Two decisions worth keeping:
 
 - **It takes key status, unlike every other panel in the app.** The preview

@@ -26,6 +26,24 @@ nonisolated enum HotkeyAction: String, CaseIterable {
         }
     }
 
+    /// Whether the action is offered at all right now.
+    ///
+    /// Searching means nothing without an index, so with indexing switched
+    /// off the shortcut isn't registered, the menu item isn't shown, and the
+    /// Hotkeys tab doesn't offer a row for it. Registering it anyway would
+    /// be worse than useless: `RegisterEventHotKey` **consumes** the
+    /// keystroke system-wide, so a shortcut for a feature that can't run
+    /// would silently swallow ⌘⇧2 in every other app.
+    ///
+    /// `HotkeyCoordinator` re-applies registrations on every UserDefaults
+    /// change, so toggling the setting takes effect immediately either way.
+    var isAvailable: Bool {
+        switch self {
+        case .searchCaptures: return AppSettings.isCaptureIndexingEnabled
+        case .captureArea, .captureWindow, .captureFullScreen, .captureText, .copyForAI: return true
+        }
+    }
+
     var defaultShortcut: HotkeyShortcut {
         switch self {
         case .captureArea:

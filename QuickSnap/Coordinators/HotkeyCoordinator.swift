@@ -97,7 +97,12 @@ final class HotkeyCoordinator {
     /// every UserDefaults change, so it exits early when nothing relevant
     /// changed.
     private func applyRegistrations() {
-        let current = Dictionary(uniqueKeysWithValues: Self.actions.map { ($0, AppSettings.hotkey(for: $0)) })
+        // An unavailable action registers nothing — see `HotkeyAction.isAvailable`.
+        // Its stored shortcut is left alone, so switching the feature back on
+        // restores whatever the user had recorded.
+        let current = Dictionary(uniqueKeysWithValues: Self.actions.map {
+            ($0, $0.isAvailable ? AppSettings.hotkey(for: $0) : nil)
+        })
         guard current != appliedShortcuts else { return }
         appliedShortcuts = current
 
