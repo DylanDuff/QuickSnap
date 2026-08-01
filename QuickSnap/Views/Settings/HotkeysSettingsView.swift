@@ -26,7 +26,7 @@ struct HotkeysSettingsView: View {
             }
 
             Section {
-                Text("Shortcuts work system-wide while QuickSnap is running. Click one to change it, or ✕ to remove it — an action with no shortcut still works from the menu bar, and stops taking that key combination away from other apps.")
+                Text("Shortcuts work anywhere while QuickSnap is running. Click one to change it, or ✕ to remove it. Actions without a shortcut still work from the menu bar, and give that key combination back to your other apps.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

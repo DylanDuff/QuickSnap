@@ -59,7 +59,7 @@ struct MarkupToolbarEditor: View {
         .overlay(Capsule().strokeBorder(.separator, lineWidth: 1))
         .overlay(alignment: .leading) {
             if layout.items.isEmpty {
-                Text("Empty — drag something in")
+                Text("Drag items here")
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
                     .padding(.leading, 16)
@@ -144,7 +144,7 @@ struct MarkupToolbarEditor: View {
 
     private var hint: some View {
         HStack(spacing: 6) {
-            Text("Drag to rearrange, or back to the list below to remove.")
+            Text("Drag items to rearrange them, or drag one back to the list below to remove it.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 

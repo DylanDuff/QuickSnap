@@ -199,7 +199,7 @@ struct GeneralSettingsView: View {
                 .pickerStyle(.segmented)
 
                 if previewPosition == .dynamic {
-                    Text("Dynamic centers the preview on what you captured — the selected area, or the captured window. Full-screen captures use the bottom corner.")
+                    Text("Dynamic puts the preview over whatever you just captured. Full-screen captures use the bottom corner.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -220,7 +220,7 @@ struct GeneralSettingsView: View {
                 }
 
                 if toastPosition == .notificationCenter {
-                    Text("Confirmations — copied text, upload results, saved edits — are handed to Notification Center instead of appearing as a pill over your work. In-progress updates are skipped; only the result is posted.")
+                    Text("Confirmations go to Notification Center instead of appearing over your work. You'll see the result of an upload, but not its progress.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -271,7 +271,7 @@ struct GeneralSettingsView: View {
             Section("Copy for AI") {
                 Toggle("Include the text in the image", isOn: $copyForAIIncludesText)
 
-                Text("Copy for AI puts the screenshot on the clipboard together with the app it came from and, optionally, the text QuickSnap can read in it — so one paste gives a chat or coding tool the whole picture.")
+                Text("Copy for AI puts the screenshot on the clipboard along with the app it came from and, if you want, the text in it. One paste gives a chat or coding tool the whole picture.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

@@ -146,7 +146,7 @@ struct MarkupToolbar: View {
                 controller.beginCrop()
             }
         }
-        .help("Crop — drag out the area to keep, Return to apply")
+        .help("Crop. Drag out the area to keep, then press Return")
     }
 
     /// Scans the capture for credentials and arms the redaction review. The
@@ -236,10 +236,10 @@ struct MarkupToolbar: View {
     /// picking a color/stroke elsewhere) is what dismisses it.
     private var presetShapeRow: some View {
         HStack(spacing: 6) {
-            shapeButton("rectangle", inserts: .shape(.roundedRectangle), help: "Rectangle — drag on the image to place it")
-            shapeButton("oval", inserts: .shape(.ellipse), help: "Ellipse — drag on the image to place it")
-            shapeButton("line.diagonal", inserts: .line(arrow: false), help: "Line — drag on the image to place it")
-            shapeButton("arrow.up.right", inserts: .line(arrow: true), help: "Arrow — drag on the image to place it")
+            shapeButton("rectangle", inserts: .shape(.roundedRectangle), help: "Rectangle. Drag on the image to place it")
+            shapeButton("oval", inserts: .shape(.ellipse), help: "Ellipse. Drag on the image to place it")
+            shapeButton("line.diagonal", inserts: .line(arrow: false), help: "Line. Drag on the image to place it")
+            shapeButton("arrow.up.right", inserts: .line(arrow: true), help: "Arrow. Drag on the image to place it")
             ToolbarIconButton(systemImage: "character.textbox") {
                 controller.insertTextbox()
             }

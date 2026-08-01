@@ -35,7 +35,7 @@ struct MCPSettingsSection: View {
             Section("MCP Server") {
                 Toggle("Let AI tools capture through QuickSnap", isOn: $isEnabled)
 
-                Text("Exposes QuickSnap's capture tools to MCP clients like Claude Code, so an agent can screenshot a window or read text off your screen without you doing it by hand. It listens only on this Mac and needs the token below.")
+                Text("Lets AI tools like Claude Code take screenshots through QuickSnap, or read text off your screen, without you doing it by hand. It runs only on this Mac, and clients need the token below.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -87,11 +87,11 @@ struct MCPSettingsSection: View {
                 }
 
                 Section("What agents can do") {
-                    ToolSummaryRow(name: "capture_area", detail: "Asks you to drag out a region — the only tool that interrupts you.")
+                    ToolSummaryRow(name: "capture_area", detail: "Asks you to drag out a region. The only tool that interrupts you.")
                     ToolSummaryRow(name: "capture_window / capture_screen", detail: "Screenshots a window or display without asking.")
                     ToolSummaryRow(name: "read_screen_text", detail: "Reads on-screen text with on-device OCR, no image.")
                     ToolSummaryRow(name: "list_windows", detail: "Lists what's open, so an agent can pick a window.")
-                    ToolSummaryRow(name: "list_recent_captures / search_captures / get_capture", detail: "Finds and reads screenshots QuickSnap saved — never other files in the folder.")
+                    ToolSummaryRow(name: "list_recent_captures / search_captures / get_capture", detail: "Finds and reads screenshots QuickSnap saved, never other files in the folder.")
 
                     Text("QuickSnap shows a confirmation whenever an agent captures something you didn't trigger yourself.")
                         .font(.footnote)

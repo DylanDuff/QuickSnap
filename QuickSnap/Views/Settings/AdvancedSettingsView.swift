@@ -70,7 +70,7 @@ struct AdvancedSettingsView: View {
                     }
                 }
 
-                Text("Only transient failures are retried — timeouts, dropped connections, and server errors. A rejected key or a missing bucket fails immediately.")
+                Text("Timeouts, dropped connections and server errors are retried. A rejected key or a missing bucket fails straight away.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

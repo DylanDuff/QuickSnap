@@ -41,7 +41,7 @@ struct MarkupSettingsView: View {
                     }
                 }
 
-                Text("Stroke sizes are relative — each screenshot gets widths proportional to its own dimensions.")
+                Text("Sizes scale with each screenshot, so your strokes look the same whether you capture a small window or a whole screen.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

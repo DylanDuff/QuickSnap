@@ -42,7 +42,7 @@ struct IntelligenceSettingsView: View {
             Section("Apple Intelligence") {
                 Toggle("Use on-device intelligence", isOn: $isEnabled)
 
-                Text("Runs entirely on this Mac using Apple's built-in model. No capture, and no text from a capture, is sent anywhere.")
+                Text("Everything runs on this Mac using Apple's built-in model. Your screenshots and the text in them never leave your computer.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -81,14 +81,10 @@ struct IntelligenceSettingsView: View {
                 Toggle("Describe captures in file names", isOn: describesFilenamesBinding)
                     .disabled(!isEnabled)
 
-                Text("Adds the {describe} token to the file name template, so a capture is named for what it shows — “QuickSnap 2026-08-01 login-form-validation-error.png”.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                // Both halves of this matter to someone watching their save
-                // folder: the file appears immediately under a name that
-                // doesn't have the description in it yet, and then moves.
-                Text("The screenshot is saved right away and renamed a few seconds later, once the description is ready. If it can't be produced, the file keeps the name it already has.")
+                // One block rather than two: someone watching their save
+                // folder needs the naming *and* the fact that the file
+                // appears first and moves afterwards.
+                Text("Names captures after what they show, like “QuickSnap 2026-08-01 login-form-validation-error.png”, by adding {describe} to your file name template. Screenshots save straight away and are renamed a few seconds later, once the description is ready.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -96,7 +92,7 @@ struct IntelligenceSettingsView: View {
             Section("Search") {
                 Toggle("Index captures so you can search them", isOn: $isIndexingEnabled)
 
-                Text("Reads the text in each screenshot as it's saved and keeps it in a local database, so you can find a capture by something that was written in it. On this Mac only — nothing is uploaded, and only files QuickSnap saved are ever read.")
+                Text("Reads the text in each screenshot as you save it, so you can find a capture later by something written in it. The index stays on this Mac, and only screenshots QuickSnap saved are ever read.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -117,12 +113,12 @@ struct IntelligenceSettingsView: View {
                                     .foregroundStyle(.secondary)
                                     .monospacedDigit()
                                 Button("Rebuild") { indexer.rebuild() }
-                                    .help("Reads every capture in the save folder again. Worth doing after turning intelligence on, so older captures get descriptions too.")
+                                    .help("Reads every screenshot in your save folder again. Useful after turning on Apple Intelligence, so older captures get descriptions too.")
                             }
                         }
                     }
 
-                    Text("Open search from the menu bar, or with \(searchShortcutDescription). Return reveals a capture in the Finder; ⌘Return opens it for markup.")
+                    Text("Search from the menu bar, or press \(searchShortcutDescription). Return shows a capture in the Finder, ⌘Return opens it for markup.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

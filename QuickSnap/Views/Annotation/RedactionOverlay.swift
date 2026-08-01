@@ -64,7 +64,7 @@ struct RedactionOverlay: View {
                 )
         }
         .buttonStyle(.plain)
-        .help("\(match.kind.label) — \(match.preview). Click to black it out.")
+        .help("\(match.kind.label): \(match.preview). Click to black it out.")
         .frame(width: max(frame.width, 8), height: max(frame.height, 8))
         .offset(x: frame.minX, y: frame.minY)
         .onHover { hovering in

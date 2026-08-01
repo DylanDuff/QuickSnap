@@ -74,12 +74,12 @@ struct UploadingSettingsView: View {
                 Section("Before Uploading") {
                     Toggle("Check captures for credentials", isOn: $checksForSensitiveContent)
 
-                    Text("Reads the capture on this Mac and looks for things like API keys, tokens, private keys and card numbers. When it finds one, the upload is held and the capture opens for you to black it out first — nothing is sent until you've seen it.")
+                    Text("Looks for API keys, tokens, private keys and card numbers before a capture is uploaded. If one turns up, the upload waits and the screenshot opens so you can black it out. Nothing is sent until you've seen it.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
                     if !checksForSensitiveContent {
-                        Text("With this off, captures are uploaded exactly as taken. A visible key in a screenshot becomes a link you can't take back.")
+                        Text("With this off, captures upload exactly as taken. A key that's visible in a screenshot becomes a link you can't take back.")
                             .font(.footnote)
                             .foregroundStyle(.orange)
                     }
@@ -172,7 +172,7 @@ private struct ImmichSettingsSection: View {
 
             ConnectionStatusRow(status: status)
 
-            Text("Create a key in Immich under Account Settings → API Keys. It needs asset.upload, plus album.read/album.write to use albums and sharedLink.create for links.")
+            Text("Create a key in Immich under Account Settings → API Keys. It needs asset.upload, plus album.read and album.write for albums, and sharedLink.create for links.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -210,7 +210,7 @@ private struct ImmichSettingsSection: View {
                 }
             }
 
-            Text("Immich has no client-selectable folder — the album is the only grouping its API exposes.")
+            Text("Immich sorts uploads into albums rather than folders.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -363,7 +363,7 @@ private struct S3SettingsSection: View {
                     .autocorrectionDisabled()
             }
 
-            Text("The endpoint is the service address without the bucket. Cloudflare R2 and most MinIO setups ignore the region but still need a valid one — us-east-1 (or auto for R2) is safe.")
+            Text("The endpoint is your service address without the bucket name. R2 and most MinIO setups ignore the region but still need one; us-east-1 works, or auto for R2.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -407,7 +407,7 @@ private struct S3SettingsSection: View {
 
             Toggle("Make uploads publicly readable", isOn: $isPublicRead)
 
-            Text("Path-style is required by MinIO and accepted by R2 and B2; turn it off for AWS S3. The public base URL is your CDN or custom domain — R2 in particular serves objects from a different domain than the API endpoint. Cloudflare R2 rejects ACLs, so leave \"publicly readable\" off there and make the bucket public in its own settings.")
+            Text("Path-style is required by MinIO and works with R2 and B2. Turn it off for AWS S3. Set a public base URL if your files are served from a CDN or custom domain, which R2 does by default. R2 also rejects ACLs, so leave \"publicly readable\" off there and make the bucket public in Cloudflare instead.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
