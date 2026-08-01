@@ -8,7 +8,8 @@ Menu bar screenshot utility for macOS, inspired by CleanShot X. Lives in the men
 - **Text recognition** — select an area and the recognized text (Vision OCR) goes straight to the clipboard.
 - **After capture** — save to disk, copy to the clipboard, and show a floating preview thumbnail; each action individually toggleable.
 - **Preview panel** — a PIP-style floating thumbnail with quick actions: reveal in Finder, copy, edit, or drag the file out into another app.
-- **Annotation editor** — PencilKit-backed markup canvas (via PaperKit) with pen, highlighter, eraser, shapes, arrows, text, crop, color and stroke-width presets. Exports flattened at full resolution via Copy or Save As; the original file is never overwritten.
+- **Annotation editor** — PencilKit-backed markup canvas (via PaperKit) with pen, highlighter, eraser, shapes, arrows, text, crop, color and stroke-width presets. Exports flattened at full resolution via Copy, one-click Save, Save As, or dragging the file straight into another app; the original file is never overwritten. Default color, default stroke size, and which export buttons show are configurable in Settings → Markup.
+- **Uploading** — push captures to [Immich](https://immich.app) or any S3-compatible bucket (Cloudflare R2, Backblaze B2, MinIO, Wasabi, DigitalOcean Spaces, AWS), automatically after each capture or on demand from the preview panel and markup toolbar. Optionally copies a shareable link to the clipboard. Configured in Settings → Uploading; credentials are stored in the Keychain.
 - **Window backgrounds** — window captures can be composited onto your wallpaper or a solid color with padding and a soft shadow.
 - **Global hotkeys** — configurable in Settings; defaults below.
 
@@ -50,4 +51,7 @@ QuickSnap/
   Services/              — stateless operations: capture, file I/O, OCR, settings
 ```
 
-Architecture notes, layering rules, and the non-obvious platform gotchas are documented in [CLAUDE.md](CLAUDE.md).
+Architecture notes, layering rules, and the non-obvious platform gotchas are documented in [CLAUDE.md](CLAUDE.md). Developer reference docs live in [docs/](docs/):
+
+- [motion-design.md](docs/motion-design.md) — house animation and feedback conventions.
+- [uploading.md](docs/uploading.md) — the upload provider architecture, the Immich and S3 integrations, how the SigV4 signing is verified, and the ATS setup for LAN servers.

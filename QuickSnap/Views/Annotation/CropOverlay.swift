@@ -184,26 +184,13 @@ struct CropOverlay: View {
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
             Divider().frame(height: 14)
-            Button {
+            ToolbarIconButton(systemImage: "xmark", diameter: 22, iconSize: 12, iconWeight: .semibold) {
                 controller.cancelCrop()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 22, height: 22)
-                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
             .help("Cancel crop (Esc)")
-            Button {
+            ToolbarIconButton(systemImage: "checkmark", diameter: 22, iconSize: 12, iconWeight: .semibold, tint: .accentColor) {
                 apply(in: size)
-            } label: {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
             .help("Apply crop (Return)")
         }
         .padding(.horizontal, 12)

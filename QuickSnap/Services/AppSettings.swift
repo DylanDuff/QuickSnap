@@ -59,6 +59,31 @@ nonisolated enum AppSettings {
         static let windowBackgroundStyle = "windowBackgroundStyle"
         static let windowBackgroundPadding = "windowBackgroundPadding"
         static let windowBackgroundColor = "windowBackgroundColor"
+        static let markupDefaultColor = "markupDefaultColor"
+        static let markupDefaultStrokeStep = "markupDefaultStrokeStep"
+        static let markupShowsCopyButton = "markupShowsCopyButton"
+        static let markupShowsSaveButton = "markupShowsSaveButton"
+        static let markupShowsSaveAsButton = "markupShowsSaveAsButton"
+        static let markupShowsDragButton = "markupShowsDragButton"
+        static let markupShowsUploadButton = "markupShowsUploadButton"
+        // Uploading — provider-neutral settings…
+        static let uploadingEnabled = "uploadingEnabled"
+        static let uploadProvider = "uploadProvider"
+        static let uploadAfterCapture = "uploadAfterCapture"
+        static let uploadCopiesLink = "uploadCopiesLink"
+        static let uploadShowsPreviewButton = "uploadShowsPreviewButton"
+        // …and each provider's own configuration, kept prefixed.
+        static let immichServerURL = "immichServerURL"
+        static let immichAlbumID = "immichAlbumID"
+        static let immichAlbumName = "immichAlbumName"
+        static let s3Endpoint = "s3Endpoint"
+        static let s3Region = "s3Region"
+        static let s3Bucket = "s3Bucket"
+        static let s3AccessKeyID = "s3AccessKeyID"
+        static let s3KeyPrefix = "s3KeyPrefix"
+        static let s3PublicBaseURL = "s3PublicBaseURL"
+        static let s3UsesPathStyle = "s3UsesPathStyle"
+        static let s3PublicRead = "s3PublicRead"
 
         static func hotkey(for action: HotkeyAction) -> String {
             "hotkey.\(action.rawValue)"
@@ -77,7 +102,45 @@ nonisolated enum AppSettings {
         /// Points; multiplied by the screen's backing scale at render time.
         static let windowBackgroundPadding = 40.0
         static let windowBackgroundColor = "#F2F2F7"
+        /// System red — matches the pre-setting hardcoded markup color.
+        static let markupDefaultColor = "#FF3B30"
+        /// Middle step of the five per-image stroke presets.
+        static let markupDefaultStrokeStep = 2
+        static let markupShowsCopyButton = true
+        static let markupShowsSaveButton = true
+        static let markupShowsSaveAsButton = false
+        static let markupShowsDragButton = false
+        static let markupShowsUploadButton = false
+        static let uploadingEnabled = false
+        static let uploadProvider = UploadProvider.immich
+        static let uploadAfterCapture = false
+        /// Off by default: for Immich this mints a *public* shared link, and
+        /// for S3 it assumes the bucket is world-readable — neither should
+        /// happen without the user asking.
+        static let uploadCopiesLink = false
+        static let uploadShowsPreviewButton = true
+        static let immichServerURL = ""
+        /// Empty = upload to the library without filing it into an album.
+        static let immichAlbumID = ""
+        static let immichAlbumName = ""
+        static let s3Endpoint = ""
+        /// R2 and most MinIO deployments ignore the region but require a
+        /// syntactically valid one; `us-east-1` is the safe universal value.
+        static let s3Region = "us-east-1"
+        static let s3Bucket = ""
+        static let s3AccessKeyID = ""
+        static let s3KeyPrefix = "screenshots/"
+        static let s3PublicBaseURL = ""
+        /// Path-style (`endpoint/bucket/key`) is what self-hosted MinIO
+        /// needs and what R2/B2 accept; AWS proper prefers virtual-hosted.
+        static let s3UsesPathStyle = true
+        static let s3PublicRead = false
     }
+
+    /// Number of steps on the markup stroke ladder — settings stores a step
+    /// index (0…count-1) because absolute widths are per-image (they scale
+    /// with the capture; see `MarkupCanvasController.strokeWidthPresets`).
+    static let markupStrokeStepCount = 5
 
     static var defaultSaveFolder: URL {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -149,6 +212,105 @@ nonisolated enum AppSettings {
         return NSColor(hexString: hex) ?? NSColor(hexString: Defaults.windowBackgroundColor)!
     }
 
+    /// Initial markup color for new annotation windows.
+    static var markupDefaultColor: NSColor {
+        let hex = UserDefaults.standard.string(forKey: Keys.markupDefaultColor) ?? ""
+        return NSColor(hexString: hex) ?? NSColor(hexString: Defaults.markupDefaultColor)!
+    }
+
+    /// Initial stroke step (0…`markupStrokeStepCount`-1) for new annotation
+    /// windows, clamped in case a stale value is stored.
+    static var markupDefaultStrokeStep: Int {
+        let stored = UserDefaults.standard.object(forKey: Keys.markupDefaultStrokeStep) as? Int
+        return min(max(stored ?? Defaults.markupDefaultStrokeStep, 0), markupStrokeStepCount - 1)
+    }
+
+    // MARK: - Uploading
+
+    static var uploadProvider: UploadProvider {
+        let raw = UserDefaults.standard.string(forKey: Keys.uploadProvider) ?? ""
+        return UploadProvider(rawValue: raw) ?? Defaults.uploadProvider
+    }
+
+    /// The configured upload target, or nil when uploading is switched off
+    /// or the selected provider is missing something it needs. This is the
+    /// single place providers are constructed from settings — everything
+    /// else works through the `UploadDestination` protocol.
+    static var uploadDestination: (any UploadDestination)? {
+        guard bool(forKey: Keys.uploadingEnabled, default: Defaults.uploadingEnabled) else { return nil }
+
+        switch uploadProvider {
+        case .immich:
+            guard let credentials = immichCredentials else { return nil }
+            return ImmichDestination(
+                credentials: credentials,
+                albumID: string(forKey: Keys.immichAlbumID),
+                albumName: string(forKey: Keys.immichAlbumName),
+                createsSharedLink: uploadCopiesLink
+            )
+
+        case .s3:
+            guard let configuration = s3Configuration else { return nil }
+            return S3Destination(configuration: configuration, copiesLink: uploadCopiesLink)
+        }
+    }
+
+    /// Credentials for the configured Immich instance. The API key lives in
+    /// the Keychain (`KeychainStore`), not UserDefaults — only the server
+    /// address is a plain default.
+    static var immichCredentials: ImmichCredentials? {
+        guard let serverURL = ImmichClient.normalizedServerURL(
+                  from: UserDefaults.standard.string(forKey: Keys.immichServerURL) ?? ""
+              ),
+              let apiKey = KeychainStore.string(for: KeychainStore.Account.immichAPIKey)
+        else {
+            return nil
+        }
+        return ImmichCredentials(serverURL: serverURL, apiKey: apiKey)
+    }
+
+    /// Everything the S3 destination needs; nil when a required field is
+    /// blank or the endpoint isn't a usable URL.
+    static var s3Configuration: S3Configuration? {
+        guard let endpoint = S3Destination.normalizedEndpoint(
+                  from: UserDefaults.standard.string(forKey: Keys.s3Endpoint) ?? ""
+              ),
+              let bucket = string(forKey: Keys.s3Bucket),
+              let accessKeyID = string(forKey: Keys.s3AccessKeyID),
+              let secretAccessKey = KeychainStore.string(for: KeychainStore.Account.s3SecretKey)
+        else {
+            return nil
+        }
+        return S3Configuration(
+            endpoint: endpoint,
+            region: string(forKey: Keys.s3Region) ?? Defaults.s3Region,
+            bucket: bucket,
+            accessKeyID: accessKeyID,
+            secretAccessKey: secretAccessKey,
+            keyPrefix: string(forKey: Keys.s3KeyPrefix) ?? "",
+            publicBaseURL: string(forKey: Keys.s3PublicBaseURL),
+            usesPathStyle: bool(forKey: Keys.s3UsesPathStyle, default: Defaults.s3UsesPathStyle),
+            isPublicRead: bool(forKey: Keys.s3PublicRead, default: Defaults.s3PublicRead)
+        )
+    }
+
+    static var uploadsAfterCapture: Bool {
+        bool(forKey: Keys.uploadAfterCapture, default: Defaults.uploadAfterCapture)
+    }
+
+    /// Whether a successful upload should put a link on the clipboard —
+    /// which for Immich means minting a public shared link, and for S3
+    /// means the object URL.
+    static var uploadCopiesLink: Bool {
+        bool(forKey: Keys.uploadCopiesLink, default: Defaults.uploadCopiesLink)
+    }
+
+    /// Whether the post-capture preview panel offers an upload button. Only
+    /// consulted when `uploadDestination` is non-nil.
+    static var uploadShowsPreviewButton: Bool {
+        bool(forKey: Keys.uploadShowsPreviewButton, default: Defaults.uploadShowsPreviewButton)
+    }
+
     /// Current shortcut for `action`, nil when explicitly cleared. The
     /// defaults come through `registerDefaultHotkeys`, so an absent key
     /// resolves to the action's default automatically.
@@ -174,6 +336,13 @@ nonisolated enum AppSettings {
 
     private static func bool(forKey key: String, default defaultValue: Bool) -> Bool {
         UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
+    }
+
+    /// A stored string, treating empty as absent — which is how every
+    /// optional text setting here reads ("no album", "no CDN domain").
+    private static func string(forKey key: String) -> String? {
+        let value = UserDefaults.standard.string(forKey: key) ?? ""
+        return value.isEmpty ? nil : value
     }
 
     private static func double(forKey key: String, default defaultValue: Double) -> Double {

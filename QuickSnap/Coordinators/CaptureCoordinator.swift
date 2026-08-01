@@ -25,6 +25,7 @@ final class CaptureCoordinator: ObservableObject {
     private let annotationCoordinator = AnnotationCoordinator()
     private let hotkeyCoordinator = HotkeyCoordinator()
     private let toastController = ToastController()
+    private let uploadCoordinator = UploadCoordinator()
 
     init() {
         AppSettings.registerDefaultHotkeys()
@@ -118,7 +119,10 @@ final class CaptureCoordinator: ObservableObject {
     private func startOverlaySession(kind: SelectionSessionKind, content: SCShareableContent) {
         isSessionActive = true
         sessionKind = kind
-        NSApp.activate(ignoringOtherApps: true)
+        // Deliberately no NSApp.activate here: the overlay panels are
+        // non-activating so they can take key status for Esc on their own,
+        // and activating would shove any open annotation/Settings windows
+        // above the app the user is capturing over.
 
         for screen in NSScreen.screens {
             let window = SelectionOverlayWindow(screen: screen)
@@ -259,10 +263,28 @@ final class CaptureCoordinator: ObservableObject {
             if AppSettings.copiesAfterCapture {
                 ScreenshotSaver.copyToClipboard(image)
             }
+            if AppSettings.uploadsAfterCapture {
+                uploadCoordinator.upload(image, on: screen)
+            }
             if AppSettings.showsPreviewAfterCapture {
-                previewController.show(image: image, fileURL: url, on: screen, scale: screen.backingScaleFactor) { [weak self] image, fileURL in
-                    self?.annotationCoordinator.openAnnotationWindow(image: image, fileURL: fileURL)
-                }
+                // The panel offers Upload only when Immich is configured and
+                // the button is switched on — and not when the capture was
+                // already uploaded automatically, which would just duplicate it.
+                let offersUpload = uploadCoordinator.isConfigured
+                    && AppSettings.uploadShowsPreviewButton
+                    && !AppSettings.uploadsAfterCapture
+                previewController.show(
+                    image: image,
+                    fileURL: url,
+                    on: screen,
+                    scale: screen.backingScaleFactor,
+                    onUpload: offersUpload
+                        ? { [weak self] image in self?.uploadCoordinator.upload(image, on: screen) }
+                        : nil,
+                    onEdit: { [weak self] image, fileURL in
+                        self?.annotationCoordinator.openAnnotationWindow(image: image, fileURL: fileURL)
+                    }
+                )
             }
         } catch {
             presentError(error)

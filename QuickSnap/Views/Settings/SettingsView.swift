@@ -3,17 +3,20 @@ import AppKit
 
 enum SettingsSection: String, CaseIterable, Identifiable {
     case general = "General"
+    case markup = "Markup"
     case hotkeys = "Hotkeys"
     case uploading = "Uploading"
     case advanced = "Advanced"
     case about = "About"
-    
+
     var id: String { rawValue }
-    
+
     var icon: String {
         switch self {
         case .general:
             return "gearshape.fill"
+        case .markup:
+            return "paintbrush.fill"
         case .hotkeys:
             return "command"
         case .uploading:
@@ -24,11 +27,17 @@ enum SettingsSection: String, CaseIterable, Identifiable {
             return "info.circle.fill"
         }
     }
-    
+
     var iconColor: Color {
         switch self {
         case .general:
             return .gray
+        case .markup:
+            return Color(
+                red: 106 / 255,
+                green: 176 / 255,
+                blue: 76 / 255
+            )
         case .hotkeys:
             return Color(
                 red: 235 / 255,
@@ -119,11 +128,14 @@ struct SettingsView: View {
         case .general:
             GeneralSettingsView()
 
+        case .markup:
+            MarkupSettingsView()
+
         case .hotkeys:
             HotkeysSettingsView()
 
         case .uploading:
-            PlaceholderSettingsSection(title: "Uploading")
+            UploadingSettingsView()
 
         case .advanced:
             PlaceholderSettingsSection(title: "Advanced")

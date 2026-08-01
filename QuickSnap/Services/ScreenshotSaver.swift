@@ -43,27 +43,34 @@ nonisolated enum ScreenshotSaver {
         return url
     }
 
-    /// Writes `image` as PNG to a specific URL rather than minting a fresh
-    /// timestamped name — used by Save As… for annotated screenshots.
-    static func writePNG(_ image: CGImage, to url: URL) throws {
+    /// PNG-encodes `image`. The single encoder shared by everything that
+    /// needs PNG bytes — writing to disk and uploading to Immich.
+    static func pngData(_ image: CGImage) throws -> Data {
         let rep = NSBitmapImageRep(cgImage: image)
         guard let data = rep.representation(using: .png, properties: [:]) else {
             throw ScreenshotSaverError.encodingFailed
         }
-        try data.write(to: url)
+        return data
     }
 
-    /// Writes a PNG to a unique temporary location using the timestamped
-    /// naming convention. Backs the preview panel's drag-out for captures
-    /// that were never saved to disk (the "Save" after-capture action is
-    /// off) — the OS owns cleanup of the temporary directory.
-    static func writeTemporaryPNG(_ image: CGImage) throws -> URL {
+    /// Writes `image` as PNG to a specific URL rather than minting a fresh
+    /// timestamped name — used by Save As… for annotated screenshots.
+    static func writePNG(_ image: CGImage, to url: URL) throws {
+        try pngData(image).write(to: url)
+    }
+
+    /// Writes a PNG to a unique temporary location — `baseName` if given
+    /// (the annotation toolbar's drag-out names the dropped file), else the
+    /// timestamped naming convention (the preview panel's drag-out for
+    /// captures never saved to disk). The OS owns cleanup of the temporary
+    /// directory.
+    static func writeTemporaryPNG(_ image: CGImage, named baseName: String? = nil) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuickSnap Drags", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let url = directory.appendingPathComponent("\(timestampedName()).png")
+        let url = directory.appendingPathComponent("\(baseName ?? timestampedName()).png")
         try writePNG(image, to: url)
         return url
     }

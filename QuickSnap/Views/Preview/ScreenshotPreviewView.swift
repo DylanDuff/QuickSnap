@@ -7,6 +7,23 @@ import AppKit
 import SwiftUI
 
 struct ScreenshotPreviewView: View {
+    /// Hover action bar metrics, exposed so `ScreenshotPreviewController`
+    /// can size the panel large enough for the actions to fit with
+    /// breathing room instead of pressing the preview's bounds.
+    enum ActionBarMetrics {
+        /// Matches `PreviewActionIconStyle`'s frame.
+        static let buttonDiameter: CGFloat = 34
+        static let spacing: CGFloat = 10
+        /// Minimum gap between the bar's outermost buttons and the panel edge.
+        static let breathingRoom: CGFloat = 14
+
+        static func minimumPanelWidth(buttonCount: Int) -> CGFloat {
+            CGFloat(buttonCount) * buttonDiameter
+                + CGFloat(buttonCount - 1) * spacing
+                + breathingRoom * 2
+        }
+    }
+
     let image: NSImage
     /// False when the capture was never saved to disk — there's no file to
     /// reveal, so the Finder button is hidden.
@@ -18,12 +35,15 @@ struct ScreenshotPreviewView: View {
     let onOpenInFinder: () -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
+    /// Nil hides the Immich upload button — see `ScreenshotPreviewController.show`.
+    let onUpload: (() -> Void)?
     let onClose: () -> Void
     let onHoverChanged: (Bool) -> Void
     @ObservedObject var dragState: PreviewDragState
 
     @State private var isHovering = false
     @State private var isActionBarVisible = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -39,14 +59,14 @@ struct ScreenshotPreviewView: View {
             if isActionBarVisible {
                 actionBar
                     .padding(.bottom, 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
+                    .transition(revealTransition(anchor: .bottom))
             }
         }
         .overlay(alignment: .topTrailing) {
             if isActionBarVisible {
                 PreviewActionButton(systemImage: "xmark", action: onClose)
                     .padding(6)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .topTrailing)))
+                    .transition(revealTransition(anchor: .topTrailing))
             }
         }
         .background(
@@ -65,18 +85,29 @@ struct ScreenshotPreviewView: View {
     /// separate object, and the implicit modifier didn't reliably pick up
     /// changes from both sources, especially the hide-on-drag path.
     private func updateActionBarVisibility() {
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : Motion.revealSpring) {
             isActionBarVisible = isHovering && !dragState.isDragging
         }
     }
 
+    /// Scale-from-anchor reveal so the bar grows out of the edge it lives
+    /// on; a plain fade under reduced motion.
+    private func revealTransition(anchor: UnitPoint) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .opacity.combined(with: .scale(scale: 0.9, anchor: anchor))
+    }
+
     private var actionBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: ActionBarMetrics.spacing) {
             if let dragFileURL {
                 PreviewFileDragHandle(fileURL: dragFileURL)
             }
             PreviewActionButton(systemImage: "doc.on.doc.fill", action: onCopy)
             PreviewActionButton(systemImage: "pencil.tip.crop.circle.fill", action: onEdit)
+            if let onUpload {
+                PreviewActionButton(systemImage: "arrow.up.circle.fill", action: onUpload)
+            }
             if showsRevealInFinder {
                 PreviewActionButton(systemImage: "folder.fill", action: onOpenInFinder)
             }
@@ -98,7 +129,7 @@ private struct PreviewActionButton: View {
                 .foregroundStyle(.white)
                 .previewActionIconStyle()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())
         .previewIconHoverEffect(isHovering: $isHovering)
     }
 }

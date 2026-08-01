@@ -3,7 +3,27 @@
 //  QuickSnap
 //
 
+import CoreTransferable
 import SwiftUI
+import UniformTypeIdentifiers
+
+/// Drag-out payload for the annotation toolbar. Unlike the preview panel's
+/// drag (which has a file on disk already), the annotated file doesn't
+/// exist until it's needed — `makeFile` flattens the canvas and writes a
+/// temporary PNG only when a drop destination actually requests the file.
+nonisolated struct AnnotatedFileDrag: Transferable {
+    let makeFile: @Sendable () async throws -> URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .png) { drag in
+            SentTransferredFile(try await drag.makeFile())
+        }
+    }
+}
+
+nonisolated enum AnnotatedFileDragError: Error {
+    case exportFailed
+}
 
 /// The annotation window's content: the PaperKit markup canvas (screenshot
 /// as its background) on a small material mat, with the custom markup
@@ -36,20 +56,40 @@ struct AnnotationView: View {
 
     @StateObject private var canvas: MarkupCanvasController
     private let onCopy: (CGImage) -> Void
+    private let onSave: (CGImage) -> Void
     private let onSaveAs: (CGImage) -> Void
+    private let onUpload: (CGImage) -> Void
+    /// Writes a flattened export to a drag-suitable temporary file —
+    /// provided by `AnnotationCoordinator` (it owns naming and file I/O).
+    private let onExportDragFile: @Sendable (CGImage) throws -> URL
     /// Fired when a crop changes the canvas's aspect ratio (width / height)
     /// — `AnnotationCoordinator` re-locks and resizes the window to match.
     private let onCanvasAspectChanged: (CGFloat) -> Void
 
+    /// `markupColor`/`markupStrokeStep` are the Markup settings defaults,
+    /// read by `AnnotationCoordinator` and applied to this window's canvas
+    /// controller at creation.
     init(
         image: CGImage,
+        markupColor: Color,
+        markupStrokeStep: Int,
         onCopy: @escaping (CGImage) -> Void,
+        onSave: @escaping (CGImage) -> Void,
         onSaveAs: @escaping (CGImage) -> Void,
+        onUpload: @escaping (CGImage) -> Void,
+        onExportDragFile: @escaping @Sendable (CGImage) throws -> URL,
         onCanvasAspectChanged: @escaping (CGFloat) -> Void
     ) {
-        _canvas = StateObject(wrappedValue: MarkupCanvasController(image: image))
+        _canvas = StateObject(wrappedValue: MarkupCanvasController(
+            image: image,
+            defaultColor: markupColor,
+            defaultStrokeStep: markupStrokeStep
+        ))
         self.onCopy = onCopy
+        self.onSave = onSave
         self.onSaveAs = onSaveAs
+        self.onUpload = onUpload
+        self.onExportDragFile = onExportDragFile
         self.onCanvasAspectChanged = onCanvasAspectChanged
     }
 
@@ -90,7 +130,10 @@ struct AnnotationView: View {
             MarkupToolbar(
                 controller: canvas,
                 onCopy: { exportFlattened(then: onCopy) },
-                onSaveAs: { exportFlattened(then: onSaveAs) }
+                onSave: { exportFlattened(then: onSave) },
+                onSaveAs: { exportFlattened(then: onSaveAs) },
+                onUpload: { exportFlattened(then: onUpload) },
+                dragFile: dragFile
             )
         }
         .padding(0)
@@ -107,6 +150,17 @@ struct AnnotationView: View {
             if let flattened = await canvas.exportFlattened() {
                 handle(flattened)
             }
+        }
+    }
+
+    /// The toolbar's drag-out payload: flatten at drop time, then hand the
+    /// image to the coordinator's temp-file writer.
+    private var dragFile: AnnotatedFileDrag {
+        AnnotatedFileDrag { [canvas, onExportDragFile] in
+            guard let flattened = await canvas.exportFlattened() else {
+                throw AnnotatedFileDragError.exportFailed
+            }
+            return try onExportDragFile(flattened)
         }
     }
 }

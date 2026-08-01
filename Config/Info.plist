@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Base Info.plist. GENERATE_INFOPLIST_FILE stays on, so Xcode merges the
+  INFOPLIST_KEY_* build settings (LSUIElement, category, copyright…) on top
+  of this file — only keys that can't be expressed as a flat build setting
+  belong here.
+
+  It lives outside QuickSnap/ deliberately: that folder is a synchronized
+  file group, and anything inside it is added to the target automatically —
+  an Info.plist there would also be copied in as a bundle resource.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  Self-hosted Immich instances are usually reached over plain HTTP on a
+	  LAN (http://192.168.1.10:2283), which App Transport Security blocks by
+	  default. NSAllowsLocalNetworking permits cleartext to private-range
+	  IPs, loopback, and .local names only — public hosts still require
+	  HTTPS, unlike the blunt NSAllowsArbitraryLoads.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+</dict>
+</plist>

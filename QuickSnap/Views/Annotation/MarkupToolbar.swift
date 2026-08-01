@@ -18,29 +18,56 @@ struct MarkupToolbar: View {
 
     @ObservedObject var controller: MarkupCanvasController
     var onCopy: () -> Void
+    var onSave: () -> Void
     var onSaveAs: () -> Void
+    var onUpload: () -> Void
+    var dragFile: AnnotatedFileDrag
+
+    // Which output buttons show — configured in Settings → Markup; live
+    // via @AppStorage so open windows follow changes. The settings UI
+    // guarantees at least one stays on.
+    @AppStorage(AppSettings.Keys.markupShowsCopyButton)
+    private var showsCopyButton = AppSettings.Defaults.markupShowsCopyButton
+    @AppStorage(AppSettings.Keys.markupShowsSaveButton)
+    private var showsSaveButton = AppSettings.Defaults.markupShowsSaveButton
+    @AppStorage(AppSettings.Keys.markupShowsSaveAsButton)
+    private var showsSaveAsButton = AppSettings.Defaults.markupShowsSaveAsButton
+    @AppStorage(AppSettings.Keys.markupShowsDragButton)
+    private var showsDragButton = AppSettings.Defaults.markupShowsDragButton
+    @AppStorage(AppSettings.Keys.markupShowsUploadButton)
+    private var showsUploadButton = AppSettings.Defaults.markupShowsUploadButton
+    /// Upload is only offered when a provider is actually switched on — the
+    /// button's own toggle isn't enough, or it would appear and then fail.
+    @AppStorage(AppSettings.Keys.uploadingEnabled)
+    private var uploadingEnabled = AppSettings.Defaults.uploadingEnabled
 
     /// A preset row that can slide in over the pill's main controls.
-    /// Selecting a preset (or a color from the system picker) swaps back.
+    /// Selecting a color or stroke preset swaps back immediately; the shape
+    /// row stays open (repeat insertions) until its ✕ dismisses it.
     private enum PresetRow {
         case color
         case stroke
+        case shape
     }
 
     @State private var activePresetRow: PresetRow?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             switch activePresetRow {
             case .color:
                 presetColorRow
-                    .transition(Self.rowTransition)
+                    .transition(rowTransition)
             case .stroke:
                 presetStrokeRow
-                    .transition(Self.rowTransition)
+                    .transition(rowTransition)
+            case .shape:
+                presetShapeRow
+                    .transition(rowTransition)
             case nil:
                 mainControls
-                    .transition(Self.rowTransition)
+                    .transition(rowTransition)
             }
         }
         .padding(.horizontal, 14)
@@ -58,49 +85,53 @@ struct MarkupToolbar: View {
     private static let rowSwapAnimation: Animation = .snappy(duration: 0.25)
 
     /// Everything slides upward: the outgoing row exits through the pill's
-    /// top edge while the incoming one rises in from the bottom.
-    private static let rowTransition: AnyTransition = .asymmetric(
-        insertion: .move(edge: .bottom).combined(with: .opacity),
-        removal: .move(edge: .top).combined(with: .opacity)
-    )
+    /// top edge while the incoming one rises in from the bottom. Reduced
+    /// motion swaps the slide for a plain cross-fade.
+    private var rowTransition: AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .move(edge: .top).combined(with: .opacity)
+            )
+    }
 
     private var mainControls: some View {
         HStack(spacing: 6) {
             toolButtons
             divider
-            insertMenu
+            insertButton
             cropButton
             divider
             stylePickers
-            divider
-            outputButtons
+            if showsCopyButton || showsSaveButton || showsSaveAsButton || showsDragButton || showsUpload {
+                divider
+                outputButtons
+            }
         }
     }
 
     private var cropButton: some View {
-        Button {
+        ToolbarIconButton(systemImage: "crop", isActive: controller.isCropActive) {
             if controller.isCropActive {
                 controller.cancelCrop()
             } else {
                 controller.beginCrop()
             }
-        } label: {
-            Image(systemName: "crop")
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle().fill(controller.isCropActive ? Color.accentColor.opacity(0.25) : .clear)
-                )
-                .foregroundStyle(controller.isCropActive ? Color.accentColor : Color.primary)
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
         .help("Crop — drag out the area to keep, Return to apply")
     }
 
-    private static let presetColors: [Color] = [
+    /// Shared with `MarkupSettingsView`, which offers the same palette for
+    /// the default-color setting.
+    static let presetColors: [Color] = [
         .red, .orange, .yellow, .green, .blue, .purple, .pink, .white, .black,
     ]
+
+    /// One font weight per stroke step — how a step is *previewed* on the
+    /// `scribble.variable` glyph, here and in `MarkupSettingsView`. Count
+    /// matches `AppSettings.markupStrokeStepCount`.
+    static let strokeStepWeights: [Font.Weight] = [.ultraLight, .light, .regular, .semibold, .black]
 
     private var presetColorRow: some View {
         HStack(spacing: 10) {
@@ -113,7 +144,7 @@ struct MarkupToolbar: View {
                 } label: {
                     colorSwatch(preset, size: 22)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScaleButtonStyle())
             }
             divider
             ColorPicker("Custom color", selection: $controller.color, supportsOpacity: false)
@@ -140,41 +171,48 @@ struct MarkupToolbar: View {
     }
 
     private func toolButton(_ tool: MarkupTool) -> some View {
-        Button {
+        ToolbarIconButton(systemImage: Self.symbolName(for: tool), isActive: controller.tool == tool) {
             controller.tool = tool
-        } label: {
-            Image(systemName: Self.symbolName(for: tool))
-                .font(.system(size: 14, weight: .medium))
-                .frame(width: 28, height: 28)
-                .background(
-                    Circle().fill(controller.tool == tool ? Color.accentColor.opacity(0.25) : .clear)
-                )
-                .foregroundStyle(controller.tool == tool ? Color.accentColor : Color.primary)
-                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
         .help(Self.helpText(for: tool))
     }
 
-    private var insertMenu: some View {
-        Menu {
-            Button("Rectangle") { controller.pendingInsertion = .shape(.roundedRectangle) }
-            Button("Ellipse") { controller.pendingInsertion = .shape(.ellipse) }
-            Divider()
-            Button("Line") { controller.pendingInsertion = .line(arrow: false) }
-            Button("Arrow") { controller.pendingInsertion = .line(arrow: true) }
-            Divider()
-            Button("Text") { controller.insertTextbox() }
-        } label: {
-            Image(systemName: "plus.square.on.square")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(controller.pendingInsertion != nil ? Color.accentColor : Color.primary)
+    private var insertButton: some View {
+        ToolbarIconButton(systemImage: "plus.square.on.square", isActive: controller.pendingInsertion != nil) {
+            withAnimation(Self.rowSwapAnimation) { activePresetRow = .shape }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 28, height: 28)
-        .contentShape(Circle())
-        .help("Insert shape, line, or text — drag on the image to place it")
+        .help("Insert shape, line, or text")
+    }
+
+    /// Unlike the color/stroke rows this one doesn't swap back on selection —
+    /// arming a shape leaves the row open for repeat insertions; the ✕ (or
+    /// picking a color/stroke elsewhere) is what dismisses it.
+    private var presetShapeRow: some View {
+        HStack(spacing: 6) {
+            shapeButton("rectangle", inserts: .shape(.roundedRectangle), help: "Rectangle — drag on the image to place it")
+            shapeButton("oval", inserts: .shape(.ellipse), help: "Ellipse — drag on the image to place it")
+            shapeButton("line.diagonal", inserts: .line(arrow: false), help: "Line — drag on the image to place it")
+            shapeButton("arrow.up.right", inserts: .line(arrow: true), help: "Arrow — drag on the image to place it")
+            ToolbarIconButton(systemImage: "character.textbox") {
+                controller.insertTextbox()
+            }
+            .help("Insert text")
+            divider
+            ToolbarIconButton(systemImage: "xmark", iconSize: 12) {
+                withAnimation(Self.rowSwapAnimation) { activePresetRow = nil }
+            }
+            .help("Close shape picker")
+        }
+    }
+
+    /// Armed = accent-highlighted; clicking the armed shape again disarms
+    /// it. Completing the drag on the canvas also disarms (the controller
+    /// clears `pendingInsertion`), but the row stays open either way.
+    private func shapeButton(_ systemImage: String, inserts insertion: PendingInsertion, help: String) -> some View {
+        ToolbarIconButton(systemImage: systemImage, isActive: controller.pendingInsertion == insertion) {
+            controller.pendingInsertion = controller.pendingInsertion == insertion ? nil : insertion
+        }
+        .help(help)
     }
 
     private var stylePickers: some View {
@@ -184,16 +222,16 @@ struct MarkupToolbar: View {
             } label: {
                 colorSwatch(controller.color, size: 20)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressScaleButtonStyle())
             .help("Markup color")
             Button {
                 withAnimation(Self.rowSwapAnimation) { activePresetRow = .stroke }
             } label: {
-                strokeDot(for: controller.strokeWidth)
+                strokeSquiggle(for: controller.strokeWidth, size: 13)
                     .frame(width: 20, height: 20)
                     .contentShape(Circle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressScaleButtonStyle())
             .help("Stroke width")
         }
     }
@@ -207,14 +245,14 @@ struct MarkupToolbar: View {
                         activePresetRow = nil
                     }
                 } label: {
-                    strokeDot(for: preset)
+                    strokeSquiggle(for: preset)
                         .frame(width: 28, height: 28)
                         .background(
                             Circle().fill(preset == nearestPresetToCurrentWidth ? Color.accentColor.opacity(0.25) : .clear)
                         )
                         .contentShape(Circle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScaleButtonStyle())
             }
         }
     }
@@ -229,43 +267,58 @@ struct MarkupToolbar: View {
         }
     }
 
-    /// A dot whose diameter previews a stroke width, log-scaled across
-    /// `strokeWidthRange` to match the presets' geometric spacing.
-    private func strokeDot(for width: CGFloat) -> some View {
+    /// A variable-width squiggle (the same glyph PaperKit-style width
+    /// pickers use) whose font weight previews a stroke width — the glyph
+    /// stays the same size and its stroke gets heavier, like the brush
+    /// itself would.
+    private func strokeSquiggle(for width: CGFloat, size: CGFloat = 15) -> some View {
+        Image(systemName: "scribble.variable")
+            .font(.system(size: size, weight: weightForStrokeWidth(width)))
+            .foregroundStyle(.primary)
+    }
+
+    /// Maps a stroke width to the nearest step's font weight, log-scaled
+    /// across `strokeWidthRange` to match the presets' geometric spacing.
+    private func weightForStrokeWidth(_ width: CGFloat) -> Font.Weight {
+        let weights = Self.strokeStepWeights
         let range = controller.strokeWidthRange
-        var position: CGFloat = 1
-        if range.upperBound > range.lowerBound {
-            position = log(width / range.lowerBound) / log(range.upperBound / range.lowerBound)
-        }
-        let diameter = 5 + min(max(position, 0), 1) * 11
-        return Circle()
-            .fill(.primary)
-            .frame(width: diameter, height: diameter)
+        guard range.upperBound > range.lowerBound, width > 0 else { return .regular }
+        let position = log(width / range.lowerBound) / log(range.upperBound / range.lowerBound)
+        let index = Int((min(max(position, 0), 1) * CGFloat(weights.count - 1)).rounded())
+        return weights[index]
+    }
+
+    /// The upload button needs both its own toggle and a live provider.
+    private var showsUpload: Bool {
+        showsUploadButton && uploadingEnabled
     }
 
     private var outputButtons: some View {
         HStack(spacing: 6) {
-            Button {
-                onCopy()
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Circle())
+            if showsDragButton {
+                ToolbarIconDragSource(systemImage: "document.viewfinder", payload: dragFile)
+                    .help("Drag out as a file")
             }
-            .buttonStyle(.plain)
-            .help("Copy annotated image")
 
-            Button {
-                onSaveAs()
-            } label: {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Circle())
+            if showsCopyButton {
+                ToolbarIconButton(systemImage: "doc.on.doc", action: onCopy)
+                    .help("Copy annotated image")
             }
-            .buttonStyle(.plain)
-            .help("Save annotated image as…")
+
+            if showsSaveButton {
+                ToolbarIconButton(systemImage: "square.and.arrow.down", action: onSave)
+                    .help("Save annotated image to your screenshots folder")
+            }
+
+            if showsSaveAsButton {
+                ToolbarIconButton(systemImage: "square.and.arrow.down.on.square", action: onSaveAs)
+                    .help("Save annotated image as…")
+            }
+
+            if showsUpload {
+                ToolbarIconButton(systemImage: "arrow.up.circle", action: onUpload)
+                    .help("Upload annotated image")
+            }
         }
     }
 

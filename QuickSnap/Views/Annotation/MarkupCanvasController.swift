@@ -25,7 +25,7 @@ enum MarkupTool: String, CaseIterable, Identifiable {
 /// An insertion armed from the toolbar's insert menu, waiting for the user
 /// to drag out its geometry on the canvas. While non-nil,
 /// `ShapeInsertionOverlay` covers the canvas to capture that drag.
-enum PendingInsertion {
+enum PendingInsertion: Equatable {
     case shape(ShapeConfiguration.Shape)
     case line(arrow: Bool)
 }
@@ -63,7 +63,7 @@ final class MarkupCanvasController: nonisolated ObservableObject {
             if isCropActive { pendingInsertion = nil }
         }
     }
-    @Published var color: Color = .red {
+    @Published var color: Color {
         didSet { applyTool() }
     }
     /// Stroke width in image pixels.
@@ -93,23 +93,36 @@ final class MarkupCanvasController: nonisolated ObservableObject {
     /// The preset widths the toolbar offers, spanning `strokeWidthRange`
     /// geometrically (stroke perception is multiplicative — equal ratios
     /// read as equal steps). The middle preset is the image-proportional
-    /// default width from `init`, save for clamping at extreme image sizes.
+    /// width, save for clamping at extreme image sizes. The step count is
+    /// `AppSettings.markupStrokeStepCount` — the Markup settings page
+    /// stores a default step index into this ladder.
     var strokeWidthPresets: [CGFloat] {
-        let lower = strokeWidthRange.lowerBound
-        let upper = strokeWidthRange.upperBound
+        Self.strokeWidthPresets(in: strokeWidthRange)
+    }
+
+    private static func strokeWidthPresets(in range: ClosedRange<CGFloat>) -> [CGFloat] {
+        let lower = range.lowerBound
+        let upper = range.upperBound
         guard upper > lower else { return [lower] }
-        return (0..<5).map { lower * pow(upper / lower, CGFloat($0) / 4) }
+        let steps = AppSettings.markupStrokeStepCount
+        return (0..<steps).map { lower * pow(upper / lower, CGFloat($0) / CGFloat(steps - 1)) }
     }
 
     weak var viewController: PaperMarkupViewController? {
         didSet { applyTool() }
     }
 
-    init(image: CGImage) {
+    /// Defaults are passed in (from the Markup settings, read by
+    /// `AnnotationCoordinator`) rather than read here — this class stays
+    /// clear of Services. `defaultStrokeStep` indexes the preset ladder so
+    /// the setting is relative ("medium"), not an absolute pixel width that
+    /// would read differently across capture sizes.
+    init(image: CGImage, defaultColor: Color, defaultStrokeStep: Int) {
         let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
         baseImage = image
         canvasBounds = bounds
         visibleCanvasFrame = bounds
+        color = defaultColor
 
         // Scale stroke widths with the image so annotations stay visually
         // proportional whether the capture is a small window or a full
@@ -117,7 +130,8 @@ final class MarkupCanvasController: nonisolated ObservableObject {
         // validWidthRange internally, so cap the top end conservatively.
         let proportionalWidth = bounds.width * 0.005
         strokeWidthRange = max(2, proportionalWidth / 3)...min(60, max(12, proportionalWidth * 3))
-        strokeWidth = min(max(proportionalWidth, strokeWidthRange.lowerBound), strokeWidthRange.upperBound)
+        let presets = Self.strokeWidthPresets(in: strokeWidthRange)
+        strokeWidth = presets[min(max(defaultStrokeStep, 0), presets.count - 1)]
 
         if ZoomResizeProbe.isEnabled {
             ZoomResizeProbe.currentCanvas = self
@@ -303,7 +317,15 @@ final class MarkupCanvasController: nonisolated ObservableObject {
         let frame = CGRect(x: 0, y: 0, width: width, height: height)
         context.draw(baseImage, in: frame)
         if let markup = viewController?.markup {
+            // Canvas coordinates are top-left origin (PaperKit is UIKit-based)
+            // but `draw(in:frame:)` renders straight into the context's own
+            // bottom-left-origin space — without this flip every annotation
+            // lands mirrored about the image's horizontal centerline.
+            context.saveGState()
+            context.translateBy(x: 0, y: CGFloat(height))
+            context.scaleBy(x: 1, y: -1)
             await markup.draw(in: context, frame: frame)
+            context.restoreGState()
         }
         return context.makeImage()
     }

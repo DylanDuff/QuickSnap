@@ -39,6 +39,14 @@ final class AnnotationCoordinator: NSObject {
     /// image); a crop re-locks to the new ratio via `canvasAspectChanged`.
     private var windows: [NSWindow: CGFloat] = [:]
 
+    /// Confirmation for the toolbar's one-click Save (which has no other
+    /// visible result — the file lands silently in the save folder).
+    private let toastController = ToastController()
+
+    /// Backs the toolbar's Upload button; owns its own progress/result
+    /// toasts, so it isn't shared with `toastController`.
+    private let uploadCoordinator = UploadCoordinator()
+
     /// `fileURL` is nil when the capture was never saved to disk (the "Save"
     /// after-capture action is off) — the window then falls back to the
     /// timestamped naming convention for its title and Save As… suggestion.
@@ -71,10 +79,32 @@ final class AnnotationCoordinator: NSObject {
 
         let annotationView = AnnotationView(
             image: image,
+            markupColor: Color(nsColor: AppSettings.markupDefaultColor),
+            markupStrokeStep: AppSettings.markupDefaultStrokeStep,
             onCopy: { ScreenshotSaver.copyToClipboard($0) },
+            onSave: { [weak self, weak window] flattened in
+                guard let self, let window else { return }
+                self.saveAnnotatedCopyToFolder(flattened, attachedTo: window)
+            },
             onSaveAs: { [weak self, weak window] flattened in
                 guard let self, let window else { return }
                 self.saveAnnotatedCopy(flattened, originalFileURL: fileURL, attachedTo: window)
+            },
+            onUpload: { [weak self, weak window] flattened in
+                guard let self else { return }
+                self.uploadCoordinator.upload(
+                    flattened,
+                    filename: "\(Self.annotatedName(forOriginal: fileURL)).png",
+                    on: window?.screen ?? NSScreen.main
+                )
+            },
+            onExportDragFile: { flattened in
+                // Temp dir isn't TCC-protected, so this is safe wherever
+                // the drop machinery calls it.
+                try ScreenshotSaver.writeTemporaryPNG(
+                    flattened,
+                    named: Self.annotatedName(forOriginal: fileURL)
+                )
             },
             onCanvasAspectChanged: { [weak self, weak window] aspect in
                 // Fired from a SwiftUI onChange during view update — defer
@@ -141,12 +171,48 @@ final class AnnotationCoordinator: NSObject {
         window.setFrame(frame, display: true, animate: true)
     }
 
+    /// One-click Save: writes the flattened image straight into the
+    /// configured save folder under the timestamped naming convention (a
+    /// new file — the original screenshot is never overwritten) and
+    /// confirms with a toast, since the write is otherwise invisible.
+    private func saveAnnotatedCopyToFolder(_ image: CGImage, attachedTo window: NSWindow) {
+        Task {
+            do {
+                // Detached: a first write into a TCC-protected folder
+                // blocks on the consent prompt (see CLAUDE.md).
+                let url = try await Task.detached(priority: .userInitiated) {
+                    try ScreenshotSaver.save(image)
+                }.value
+                if let screen = window.screen ?? NSScreen.main {
+                    toastController.show(
+                        message: "Saved to \(url.deletingLastPathComponent().lastPathComponent)",
+                        systemImage: "checkmark.circle.fill",
+                        on: screen
+                    )
+                }
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Couldn't Save Annotated Screenshot"
+                alert.informativeText = error.localizedDescription
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            }
+        }
+    }
+
+    /// "<original> Annotated" — the naming shared by Save As…'s suggestion,
+    /// the drag-out file, and the Immich upload's asset name; timestamped
+    /// when there's no original on disk. `nonisolated` because the drag-out
+    /// closure is `@Sendable` and calls this off the main actor.
+    nonisolated private static func annotatedName(forOriginal fileURL: URL?) -> String {
+        let baseName = fileURL?.deletingPathExtension().lastPathComponent ?? ScreenshotSaver.timestampedName()
+        return baseName + " Annotated"
+    }
+
     private func saveAnnotatedCopy(_ image: CGImage, originalFileURL: URL?, attachedTo window: NSWindow) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.directoryURL = ScreenshotSaver.saveDirectory
-        let baseName = originalFileURL?.deletingPathExtension().lastPathComponent ?? ScreenshotSaver.timestampedName()
-        panel.nameFieldStringValue = baseName + " Annotated"
+        panel.nameFieldStringValue = Self.annotatedName(forOriginal: originalFileURL)
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
             Task {

@@ -4,7 +4,6 @@
 //
 
 import AppKit
-import QuartzCore
 import SwiftUI
 
 /// Shows a brief, non-interactive toast pill centered near the bottom of a
@@ -20,9 +19,18 @@ final class ToastController {
     private var slideOutOffset: CGFloat = -10
 
     private static let edgeMargin: CGFloat = 48
-    private static let animationDuration: TimeInterval = 0.25
 
-    func show(message: String, systemImage: String, detail: String? = nil, on screen: NSScreen) {
+    /// `autoDismisses: false` leaves the pill up until it's replaced by
+    /// another `show` or an explicit `hide` — used for in-progress states
+    /// (an Immich upload) that have no known duration, where the normal
+    /// timeout would make the toast vanish mid-operation.
+    func show(
+        message: String,
+        systemImage: String,
+        detail: String? = nil,
+        autoDismisses: Bool = true,
+        on screen: NSScreen
+    ) {
         dismissWorkItem?.cancel()
         panel?.close()
 
@@ -38,8 +46,12 @@ final class ToastController {
             width: size.width,
             height: size.height
         )
-        slideOutOffset = position == .top ? 10 : -10
-        let startFrame = finalFrame.offsetBy(dx: 0, dy: position == .top ? 12 : -12)
+        // Reduced motion: cross-fade in place instead of sliding in from the
+        // screen edge (and back out the same way on dismiss).
+        slideOutOffset = Motion.reduceMotion ? 0 : (position == .top ? 10 : -10)
+        let startFrame = Motion.reduceMotion
+            ? finalFrame
+            : finalFrame.offsetBy(dx: 0, dy: position == .top ? 12 : -12)
 
         let newPanel = NSPanel(
             contentRect: startFrame,
@@ -59,13 +71,12 @@ final class ToastController {
         newPanel.orderFrontRegardless()
         panel = newPanel
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.animationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        NSAnimationContext.animate(Motion.panelSpring) {
             newPanel.animator().alphaValue = 1
             newPanel.animator().setFrame(finalFrame, display: true)
         }
 
+        guard autoDismisses else { return }
         let workItem = DispatchWorkItem { [weak self] in
             self?.dismiss()
         }
@@ -73,18 +84,23 @@ final class ToastController {
         DispatchQueue.main.asyncAfter(deadline: .now() + AppSettings.toastAutoDismissSeconds, execute: workItem)
     }
 
+    /// Dismisses a pill that's up, including one shown with
+    /// `autoDismisses: false`.
+    func hide() {
+        dismissWorkItem?.cancel()
+        dismiss()
+    }
+
     private func dismiss() {
         guard let currentPanel = panel else { return }
         panel = nil
 
         let endFrame = currentPanel.frame.offsetBy(dx: 0, dy: slideOutOffset)
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.animationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        NSAnimationContext.animate(Motion.panelSpring) {
             currentPanel.animator().alphaValue = 0
             currentPanel.animator().setFrame(endFrame, display: true)
-        }, completionHandler: {
+        } completion: {
             currentPanel.close()
-        })
+        }
     }
 }

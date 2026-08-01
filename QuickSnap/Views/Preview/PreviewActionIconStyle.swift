@@ -12,7 +12,10 @@ import SwiftUI
 private struct PreviewActionIconStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .frame(width: 34, height: 34)
+            .frame(
+                width: ScreenshotPreviewView.ActionBarMetrics.buttonDiameter,
+                height: ScreenshotPreviewView.ActionBarMetrics.buttonDiameter
+            )
             .background(.black.opacity(0.35), in: Circle())
             .background(.ultraThinMaterial, in: Circle())
             .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))

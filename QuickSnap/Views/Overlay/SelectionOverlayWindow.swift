@@ -5,11 +5,16 @@
 
 import AppKit
 
-/// A borderless, transparent, full-screen window used to host the selection
+/// A borderless, transparent, full-screen panel used to host the selection
 /// overlay on a single display. One instance is created per connected screen.
-final class SelectionOverlayWindow: NSWindow {
+///
+/// `.nonactivatingPanel` so it can become key (for Esc) without activating
+/// the app — activating would raise QuickSnap's other windows (annotation,
+/// Settings) above whatever app the user was capturing over, and leave them
+/// there after the session.
+final class SelectionOverlayWindow: NSPanel {
     init(screen: NSScreen) {
-        super.init(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
 
         isOpaque = false
         backgroundColor = .clear
@@ -18,6 +23,9 @@ final class SelectionOverlayWindow: NSWindow {
         ignoresMouseEvents = false
         acceptsMouseMovedEvents = true
         isReleasedWhenClosed = false
+        // NSPanel defaults this to true; the app is often not even active
+        // while a session runs, so never let AppKit hide the overlay.
+        hidesOnDeactivate = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     }
 

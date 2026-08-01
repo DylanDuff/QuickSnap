@@ -4,7 +4,6 @@
 //
 
 import AppKit
-import QuartzCore
 import SwiftUI
 
 /// Shows the brief floating thumbnail in the bottom-right corner after a
@@ -27,17 +26,30 @@ final class ScreenshotPreviewController {
 
     /// Long side the panel shows at by default for a typical screenshot.
     private static let maxDimension: CGFloat = 176
-    /// Floor for the panel's long side, both on initial display (a tiny area
-    /// capture gets grown up to this) and as the user-resize minimum.
+    /// Height floor for the panel, both on initial display (a tiny area
+    /// capture gets grown up to this) and as the user-resize minimum. The
+    /// width floor comes from the hover action bar's real size — see
+    /// `ScreenshotPreviewView.ActionBarMetrics`.
     private static let minDimension: CGFloat = 90
     private static let maxLongSide: CGFloat = 480
     private static let margin: CGFloat = 16
-    private static let animationDuration: TimeInterval = 0.28
 
     /// `fileURL` is nil when the "Save" after-capture action is turned off —
     /// the preview then hides Reveal in Finder, and drag-out is backed by a
     /// temporary PNG instead of the saved file.
-    func show(image: CGImage, fileURL: URL?, on screen: NSScreen, scale: CGFloat, onEdit: @escaping (CGImage, URL?) -> Void) {
+    ///
+    /// `onUpload` is nil when Immich uploading isn't available for this
+    /// capture (not configured, button switched off, or it already uploaded
+    /// automatically), which hides the upload button. Like `onEdit`, the
+    /// panel doesn't know what the action does — the caller decides.
+    func show(
+        image: CGImage,
+        fileURL: URL?,
+        on screen: NSScreen,
+        scale: CGFloat,
+        onUpload: ((CGImage) -> Void)?,
+        onEdit: @escaping (CGImage, URL?) -> Void
+    ) {
         dismissWorkItem?.cancel()
         panel?.close()
         hasInteracted = false
@@ -47,7 +59,18 @@ final class ScreenshotPreviewController {
         let dragFileURL = fileURL ?? (try? ScreenshotSaver.writeTemporaryPNG(image))
 
         let fullPointSize = CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
-        let size = Self.thumbnailSize(for: fullPointSize)
+        // Floor the panel at whatever the hover action bar actually needs
+        // (button count varies with save/drag availability) so the actions
+        // never press the preview's bounds.
+        let actionButtonCount = 2
+            + (dragFileURL != nil ? 1 : 0)
+            + (fileURL != nil ? 1 : 0)
+            + (onUpload != nil ? 1 : 0)
+        let minContentSize = CGSize(
+            width: ScreenshotPreviewView.ActionBarMetrics.minimumPanelWidth(buttonCount: actionButtonCount),
+            height: Self.minDimension
+        )
+        let size = Self.thumbnailSize(for: fullPointSize, minimum: minContentSize)
         let nsImage = NSImage(cgImage: image, size: fullPointSize)
 
         let visible = screen.visibleFrame
@@ -60,8 +83,12 @@ final class ScreenshotPreviewController {
             width: size.width,
             height: size.height
         )
-        slideOutOffset = position == .top ? 16 : -16
-        let startFrame = finalFrame.offsetBy(dx: 0, dy: position == .top ? 24 : -24)
+        // Reduced motion: cross-fade in place instead of sliding in from the
+        // screen edge (and back out the same way on dismiss).
+        slideOutOffset = Motion.reduceMotion ? 0 : (position == .top ? 16 : -16)
+        let startFrame = Motion.reduceMotion
+            ? finalFrame
+            : finalFrame.offsetBy(dx: 0, dy: position == .top ? 24 : -24)
 
         let newPanel = ScreenshotPreviewPanel(contentRect: startFrame)
         newPanel.contentView = NSHostingView(rootView: ScreenshotPreviewView(
@@ -83,6 +110,12 @@ final class ScreenshotPreviewController {
                 onEdit(image, fileURL)
                 self?.dismiss()
             },
+            onUpload: onUpload.map { upload in
+                { [weak self] in
+                    self?.cancelAutoDismiss()
+                    upload(image)
+                }
+            },
             onClose: { [weak self] in
                 self?.cancelAutoDismiss()
                 self?.dismiss()
@@ -98,7 +131,7 @@ final class ScreenshotPreviewController {
             dragState: newPanel.dragState
         ))
         newPanel.contentAspectRatio = size
-        newPanel.contentMinSize = Self.sizeForLongSide(Self.minDimension, matching: size)
+        newPanel.contentMinSize = Self.minimumPanelSize(matching: size, minimum: minContentSize)
         newPanel.contentMaxSize = Self.sizeForLongSide(Self.maxLongSide, matching: size)
         newPanel.onInteractionBegan = { [weak self] in
             guard let self else { return }
@@ -109,9 +142,7 @@ final class ScreenshotPreviewController {
         newPanel.orderFrontRegardless()
         panel = newPanel
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.animationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        NSAnimationContext.animate(Motion.panelSpring) {
             newPanel.animator().alphaValue = 1
             newPanel.animator().setFrame(finalFrame, display: true)
         }
@@ -140,33 +171,48 @@ final class ScreenshotPreviewController {
         panel = nil
 
         let endFrame = currentPanel.frame.offsetBy(dx: 0, dy: slideOutOffset)
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.animationDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        NSAnimationContext.animate(Motion.panelSpring) {
             currentPanel.animator().alphaValue = 0
             currentPanel.animator().setFrame(endFrame, display: true)
-        }, completionHandler: {
+        } completion: {
             currentPanel.close()
-        })
+        }
     }
 
-    private static func thumbnailSize(for imageSize: CGSize) -> CGSize {
-        guard imageSize.width > 0, imageSize.height > 0 else { return CGSize(width: minDimension, height: minDimension) }
+    private static func thumbnailSize(for imageSize: CGSize, minimum: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0 else { return minimum }
 
         let fitScale = min(maxDimension / imageSize.width, maxDimension / imageSize.height, 1)
         var size = CGSize(width: imageSize.width * fitScale, height: imageSize.height * fitScale)
 
+        // Grow until both axes clear the minimum (aspect preserved, so one
+        // axis will usually overshoot its own floor)…
+        let growScale = max(minimum.width / size.width, minimum.height / size.height, 1)
+        size = CGSize(width: size.width * growScale, height: size.height * growScale)
+
+        // …but never past the long-side cap: an extreme aspect ratio gives
+        // up some breathing room rather than towering across the screen.
         let longestSide = max(size.width, size.height)
-        if longestSide < minDimension {
-            let growScale = minDimension / longestSide
-            size = CGSize(width: size.width * growScale, height: size.height * growScale)
+        if longestSide > maxLongSide {
+            let capScale = maxLongSide / longestSide
+            size = CGSize(width: size.width * capScale, height: size.height * capScale)
         }
         return size
     }
 
+    /// The smallest size with `size`'s aspect ratio satisfying `minimum` on
+    /// both axes — the panel's user-resize floor. Clamped so it never
+    /// exceeds the initial display size (which the long-side cap can pull
+    /// under the minimum for extreme aspect ratios).
+    private static func minimumPanelSize(matching size: CGSize, minimum: CGSize) -> CGSize {
+        guard size.width > 0, size.height > 0 else { return minimum }
+        let factor = min(max(minimum.width / size.width, minimum.height / size.height), 1)
+        return CGSize(width: size.width * factor, height: size.height * factor)
+    }
+
     /// A size with the same aspect ratio as `size`, scaled so its longest
-    /// side equals `longSide`. Used to derive `contentMinSize`/`contentMaxSize`
-    /// bounds that stay consistent with the locked `contentAspectRatio`.
+    /// side equals `longSide`. Used to derive a `contentMaxSize` bound that
+    /// stays consistent with the locked `contentAspectRatio`.
     private static func sizeForLongSide(_ longSide: CGFloat, matching size: CGSize) -> CGSize {
         guard size.width > 0, size.height > 0 else { return CGSize(width: longSide, height: longSide) }
         if size.width >= size.height {
