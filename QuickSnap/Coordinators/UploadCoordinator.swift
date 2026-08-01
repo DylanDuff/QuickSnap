@@ -46,8 +46,12 @@ final class UploadCoordinator {
             return
         }
 
-        let assetName = filename ?? "\(ScreenshotSaver.timestampedName()).png"
+        // The upload's own copy is encoded per the user's format setting,
+        // independent of whether the capture was also saved to disk.
+        let format = ScreenshotSaver.effectiveFormat(for: image, requested: AppSettings.imageFormat)
+        let assetName = filename ?? "\(ScreenshotSaver.name()).\(format.fileExtension)"
         let capturedAt = Date()
+        let retryLimit = AppSettings.uploadRetryCount
 
         beginUpload(to: destination, on: targetScreen)
 
@@ -57,12 +61,19 @@ final class UploadCoordinator {
                 // Encoding a full-resolution screenshot is real CPU work —
                 // keep it off the main thread. The upload itself is async
                 // URLSession, which never blocks a thread.
-                let pngData = try await Task.detached(priority: .userInitiated) {
-                    try ScreenshotSaver.pngData(image)
+                let imageData = try await Task.detached(priority: .userInitiated) {
+                    try ScreenshotSaver.imageData(image, format: format)
                 }.value
 
-                let outcome = try await destination.upload(
-                    UploadRequest(pngData: pngData, filename: assetName, capturedAt: capturedAt)
+                let outcome = try await Self.uploadWithRetry(
+                    to: destination,
+                    request: UploadRequest(
+                        imageData: imageData,
+                        filename: assetName,
+                        format: format,
+                        capturedAt: capturedAt
+                    ),
+                    retries: retryLimit
                 )
 
                 if let link = outcome.publicURL {
@@ -84,6 +95,63 @@ final class UploadCoordinator {
                     on: targetScreen
                 )
             }
+        }
+    }
+
+    /// Retries only failures that could plausibly succeed on a second try:
+    /// network errors, 5xx, and 429. A 401/403/404 or a malformed request
+    /// will fail identically every time, and retrying it just delays the
+    /// error the user needs to see.
+    ///
+    /// Both providers are safe to retry: an S3 `PUT` is idempotent, and
+    /// Immich dedupes by checksum, so a retry after a response we never saw
+    /// returns the existing asset rather than creating a duplicate.
+    private static func uploadWithRetry(
+        to destination: any UploadDestination,
+        request: UploadRequest,
+        retries: Int
+    ) async throws -> UploadOutcome {
+        var attempt = 0
+        while true {
+            do {
+                return try await destination.upload(request)
+            } catch {
+                guard attempt < retries, isTransient(error) else { throw error }
+                attempt += 1
+                // Exponential backoff: 1s, 2s, 4s…
+                let delay = UInt64(pow(2.0, Double(attempt - 1)) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+            }
+        }
+    }
+
+    private static func isTransient(_ error: Error) -> Bool {
+        switch error {
+        case let immich as ImmichError:
+            if case .server(let status, _) = immich {
+                return status >= 500 || status == 429
+            }
+            return false
+
+        case let s3 as S3Error:
+            switch s3 {
+            case .http(let status):
+                return status >= 500 || status == 429
+            case .service(let code, _):
+                // S3 names its own retryable conditions.
+                return ["InternalError", "SlowDown", "ServiceUnavailable", "RequestTimeout"].contains(code)
+            default:
+                return false
+            }
+
+        case let urlError as URLError:
+            return [
+                .timedOut, .networkConnectionLost, .cannotConnectToHost,
+                .notConnectedToInternet, .dnsLookupFailed, .cannotFindHost,
+            ].contains(urlError.code)
+
+        default:
+            return false
         }
     }
 

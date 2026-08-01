@@ -88,12 +88,14 @@ nonisolated struct S3Destination: UploadDestination {
 
     var providerName: String { "S3" }
 
-    private static let session: URLSession = {
+    /// Built per call rather than cached, so a timeout change in Settings
+    /// takes effect on the next upload instead of at the next launch.
+    private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 300
+        configuration.timeoutIntervalForRequest = AppSettings.uploadTimeoutSeconds
+        configuration.timeoutIntervalForResource = AppSettings.uploadTimeoutSeconds * 10
         return URLSession(configuration: configuration)
-    }()
+    }
 
     /// Normalizes a typed endpoint: fills in a missing scheme (`http` for
     /// LAN addresses, `https` otherwise) and drops a trailing slash.
@@ -135,7 +137,7 @@ nonisolated struct S3Destination: UploadDestination {
 
         var put = URLRequest(url: url)
         put.httpMethod = "PUT"
-        put.setValue("image/png", forHTTPHeaderField: "Content-Type")
+        put.setValue(request.format.mimeType, forHTTPHeaderField: "Content-Type")
         // Content-Length is deliberately NOT set: URLSession reserves it and
         // sets it from the body itself. Setting it here would put it in
         // SignedHeaders, and if URLSession then rewrote or dropped it the
@@ -145,16 +147,16 @@ nonisolated struct S3Destination: UploadDestination {
         }
         AWSSignatureV4.sign(
             &put,
-            payload: request.pngData,
+            payload: request.imageData,
             credentials: .init(
                 accessKeyID: configuration.accessKeyID,
                 secretAccessKey: configuration.secretAccessKey
             ),
             region: configuration.region
         )
-        put.httpBody = request.pngData
+        put.httpBody = request.imageData
 
-        let (data, response) = try await Self.session.data(for: put)
+        let (data, response) = try await Self.makeSession().data(for: put)
         try Self.validate(response: response, data: data)
 
         return UploadOutcome(
@@ -190,7 +192,7 @@ nonisolated struct S3Destination: UploadDestination {
             region: configuration.region
         )
 
-        let (data, response) = try await Self.session.data(for: request)
+        let (data, response) = try await Self.makeSession().data(for: request)
         try Self.validate(response: response, data: data)
     }
 

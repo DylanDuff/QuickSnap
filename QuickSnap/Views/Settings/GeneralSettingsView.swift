@@ -10,6 +10,21 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.saveFolderPath)
     private var saveFolderPath = ""
 
+    @AppStorage(AppSettings.Keys.filenameTemplate)
+    private var filenameTemplate = AppSettings.Defaults.filenameTemplate
+
+    @AppStorage(AppSettings.Keys.imageFormat)
+    private var imageFormat = AppSettings.Defaults.imageFormat
+
+    @AppStorage(AppSettings.Keys.imageQuality)
+    private var imageQuality = AppSettings.Defaults.imageQuality
+
+    @AppStorage(AppSettings.Keys.showsCursorInCaptures)
+    private var showsCursor = AppSettings.Defaults.showsCursorInCaptures
+
+    @State private var launchesAtLogin = false
+    @State private var isShowingTokenLegend = false
+
     @AppStorage(AppSettings.Keys.showPreviewAfterCapture)
     private var showsPreview = AppSettings.Defaults.showPreviewAfterCapture
 
@@ -51,6 +66,24 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            Section("Startup") {
+                Toggle("Launch QuickSnap at login", isOn: launchAtLoginBinding)
+
+                if LoginItem.isDeniedBySystem {
+                    HStack(spacing: 8) {
+                        Label(
+                            "Login items are blocked for QuickSnap in System Settings.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .foregroundStyle(.orange)
+                        .font(.footnote)
+
+                        Button("Open") { LoginItem.openSystemLoginItemsSettings() }
+                            .controlSize(.small)
+                    }
+                }
+            }
+
             Section("Screenshots") {
                 LabeledContent("Save to") {
                     HStack(spacing: 8) {
@@ -74,6 +107,61 @@ struct GeneralSettingsView: View {
                             .help("Use the default folder (~/Documents/QuickSnap)")
                         }
                     }
+                }
+
+                LabeledContent("File name") {
+                    HStack(spacing: 8) {
+                        TextField(AppSettings.Defaults.filenameTemplate, text: $filenameTemplate)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+
+                        Button {
+                            isShowingTokenLegend.toggle()
+                        } label: {
+                            Image(systemName: "curlybraces")
+                        }
+                        .help("Show available tokens")
+                        .popover(isPresented: $isShowingTokenLegend, arrowEdge: .bottom) {
+                            tokenLegend
+                        }
+
+                        if filenameTemplate != AppSettings.Defaults.filenameTemplate {
+                            Button("Reset") {
+                                filenameTemplate = AppSettings.Defaults.filenameTemplate
+                            }
+                        }
+                    }
+                }
+
+                // Live preview, so a template's effect is visible before a
+                // capture rather than after it.
+                Text(filenamePreview)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                LabeledContent("Format") {
+                    Picker("Format", selection: $imageFormat) {
+                        ForEach(ImageFormat.allCases) { format in
+                            Text(format.displayName).tag(format)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 220)
+                }
+
+                if imageFormat.isLossy {
+                    LabeledContent("Quality") {
+                        SliderWithValue(value: $imageQuality, in: 0.3...1, step: 0.05) {
+                            "\(Int($0 * 100))%"
+                        }
+                    }
+
+                    Text("JPEG can't store transparency, so window captures with a transparent background stay PNG.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 LabeledContent("After screenshot") {
@@ -117,6 +205,14 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            Section("Capture") {
+                Toggle("Include the pointer in captures", isOn: $showsCursor)
+
+                Text("Text Recognition captures never include the pointer.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Text Recognition") {
                 Toggle("Show text preview in confirmation", isOn: $showsTextPreviewInToast)
             }
@@ -144,6 +240,68 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .onAppear { launchesAtLogin = LoginItem.isEnabled }
+    }
+
+    /// Rendered against representative values rather than the live
+    /// frontmost app — the frontmost app while Settings is open is
+    /// QuickSnap itself, which would be a misleading preview.
+    private var filenamePreview: String {
+        let name = FilenameTemplate.render(
+            filenameTemplate,
+            context: FilenameContext(
+                date: Date(),
+                appName: "Safari",
+                windowTitle: "Apple",
+                pixelWidth: 2880,
+                pixelHeight: 1800
+            ),
+            counter: 42
+        )
+        let format = ImageFormat(rawValue: imageFormat.rawValue) ?? .png
+        return "Example: \(name).\(format.fileExtension)"
+    }
+
+    private var tokenLegend: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Tokens")
+                .font(.headline)
+                .padding(.bottom, 2)
+
+            ForEach(FilenameTemplate.tokens, id: \.token) { entry in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(entry.token)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .frame(width: 76, alignment: .leading)
+
+                    Text(entry.description)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text("Anything else is used literally. Names that collide get a number appended.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+                .frame(maxWidth: 300, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+    }
+
+    /// Reads the real `SMAppService` status rather than a stored flag — the
+    /// user can revoke login items in System Settings, and the toggle has to
+    /// follow that. A failed registration snaps the toggle back.
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchesAtLogin },
+            set: { newValue in
+                LoginItem.setEnabled(newValue)
+                launchesAtLogin = LoginItem.isEnabled
+            }
+        )
     }
 
     /// Bridges the ColorPicker to the `#RRGGBB` string stored in defaults.
@@ -152,34 +310,6 @@ struct GeneralSettingsView: View {
             get: { Color(nsColor: NSColor(hexString: windowBackgroundColorHex) ?? .white) },
             set: { windowBackgroundColorHex = NSColor($0).hexString }
         )
-    }
-
-    /// Slider with a trailing readout of the current value — the shared
-    /// shape of General's numeric rows.
-    private struct SliderWithValue: View {
-        @Binding var value: Double
-        let range: ClosedRange<Double>
-        let step: Double
-        let format: (Double) -> String
-
-        init(value: Binding<Double>, in range: ClosedRange<Double>, step: Double, format: @escaping (Double) -> String) {
-            _value = value
-            self.range = range
-            self.step = step
-            self.format = format
-        }
-
-        var body: some View {
-            HStack(spacing: 10) {
-                Slider(value: $value, in: range, step: step)
-                    .frame(maxWidth: 220)
-
-                Text(format(value))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .frame(width: 48, alignment: .trailing)
-            }
-        }
     }
 
     private func chooseSaveFolder() {

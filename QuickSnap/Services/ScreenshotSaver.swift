@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import UniformTypeIdentifiers
 
 enum ScreenshotSaverError: Error {
     case encodingFailed
@@ -25,55 +26,163 @@ nonisolated enum ScreenshotSaver {
         try FileManager.default.createDirectory(at: saveDirectory, withIntermediateDirectories: true)
     }
 
-    /// The `QuickSnap yyyy-MM-dd at HH.mm.ss` naming convention, minus the
-    /// extension — also used as the suggested Save As… name when a capture
-    /// was never written to disk.
-    static func timestampedName(for date: Date = Date()) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
-        return "QuickSnap \(formatter.string(from: date))"
+    // MARK: - Naming
+
+    /// The filename (no extension) for a capture, per the user's template.
+    /// Falls back to the default template when unset — so the out-of-box
+    /// naming is still `QuickSnap yyyy-MM-dd at HH.mm.ss`.
+    static func name(for context: FilenameContext = FilenameContext()) -> String {
+        FilenameTemplate.render(
+            AppSettings.filenameTemplate,
+            context: context,
+            counter: AppSettings.nextFilenameCounter()
+        )
     }
 
+    /// Legacy convenience for the places that just want a timestamped name
+    /// and have no capture context: the Save As… suggestion and drag-out
+    /// naming for captures that were never written to disk.
+    static func timestampedName(for date: Date = Date()) -> String {
+        name(for: FilenameContext(date: date))
+    }
+
+    // MARK: - Encoding
+
+    /// Encodes `image` in `format`. The single encoder shared by everything
+    /// that needs image bytes — disk writes and uploads alike.
+    ///
+    /// `quality` (0…1) applies only to lossy formats.
+    static func imageData(
+        _ image: CGImage,
+        format: ImageFormat = AppSettings.imageFormat,
+        quality: Double = AppSettings.imageQuality
+    ) throws -> Data {
+        let format = effectiveFormat(for: image, requested: format)
+
+        switch format {
+        case .png:
+            let rep = NSBitmapImageRep(cgImage: image)
+            guard let data = rep.representation(using: .png, properties: [:]) else {
+                throw ScreenshotSaverError.encodingFailed
+            }
+            return data
+
+        case .jpeg:
+            let rep = NSBitmapImageRep(cgImage: image)
+            guard let data = rep.representation(
+                using: .jpeg,
+                properties: [.compressionFactor: quality]
+            ) else {
+                throw ScreenshotSaverError.encodingFailed
+            }
+            return data
+
+        case .heic:
+            // NSBitmapImageRep has no HEIC writer; go through ImageIO.
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                output, format.contentType.identifier as CFString, 1, nil
+            ) else {
+                throw ScreenshotSaverError.encodingFailed
+            }
+            CGImageDestinationAddImage(destination, image, [
+                kCGImageDestinationLossyCompressionQuality: quality,
+            ] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else {
+                throw ScreenshotSaverError.encodingFailed
+            }
+            return output as Data
+        }
+    }
+
+    /// JPEG can't carry an alpha channel, and a transparent window capture
+    /// flattened onto black is almost never what someone wants — so a
+    /// capture with real transparency silently stays PNG. Nothing is lost;
+    /// the file is just bigger than asked for.
+    static func effectiveFormat(for image: CGImage, requested: ImageFormat) -> ImageFormat {
+        guard requested.discardsAlpha, hasAlpha(image) else { return requested }
+        return .png
+    }
+
+    private static func hasAlpha(_ image: CGImage) -> Bool {
+        switch image.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast:
+            return true
+        default:
+            return false
+        }
+    }
+
+    // MARK: - Writing
+
+    /// Saves into the configured folder under the user's naming template,
+    /// returning the URL actually written (which may differ from the first
+    /// choice if that name was taken).
     @discardableResult
-    static func save(_ image: CGImage) throws -> URL {
+    static func save(_ image: CGImage, context: FilenameContext = FilenameContext()) throws -> URL {
         try prepareSaveDirectory()
 
-        let url = saveDirectory.appendingPathComponent("\(timestampedName()).png")
-        try writePNG(image, to: url)
+        let format = effectiveFormat(for: image, requested: AppSettings.imageFormat)
+        let url = uniqueURL(
+            in: saveDirectory,
+            baseName: name(for: context),
+            fileExtension: format.fileExtension
+        )
+        try write(image, to: url, format: format)
         return url
     }
 
-    /// PNG-encodes `image`. The single encoder shared by everything that
-    /// needs PNG bytes — writing to disk and uploading to Immich.
-    static func pngData(_ image: CGImage) throws -> Data {
-        let rep = NSBitmapImageRep(cgImage: image)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
-            throw ScreenshotSaverError.encodingFailed
-        }
-        return data
+    /// Writes `image` to a specific URL, inferring the format from the URL's
+    /// extension so an `NSSavePanel` choice is honoured. Used by Save As….
+    static func write(_ image: CGImage, to url: URL, format: ImageFormat? = nil) throws {
+        let format = format ?? ImageFormat.allCases.first {
+            $0.fileExtension.caseInsensitiveCompare(url.pathExtension) == .orderedSame
+        } ?? AppSettings.imageFormat
+
+        try imageData(image, format: format).write(to: url)
+        // Tag it as ours so retention can safely clean up later without ever
+        // touching files QuickSnap didn't create.
+        FileTag.mark(url)
     }
 
-    /// Writes `image` as PNG to a specific URL rather than minting a fresh
-    /// timestamped name — used by Save As… for annotated screenshots.
-    static func writePNG(_ image: CGImage, to url: URL) throws {
-        try pngData(image).write(to: url)
-    }
-
-    /// Writes a PNG to a unique temporary location — `baseName` if given
-    /// (the annotation toolbar's drag-out names the dropped file), else the
-    /// timestamped naming convention (the preview panel's drag-out for
-    /// captures never saved to disk). The OS owns cleanup of the temporary
-    /// directory.
-    static func writeTemporaryPNG(_ image: CGImage, named baseName: String? = nil) throws -> URL {
+    /// Writes to a unique temporary location — `baseName` if given (the
+    /// annotation toolbar's drag-out names the dropped file), else the
+    /// naming template. The OS owns cleanup of the temporary directory.
+    static func writeTemporaryImage(
+        _ image: CGImage,
+        named baseName: String? = nil,
+        format requestedFormat: ImageFormat? = nil
+    ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("QuickSnap Drags", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let url = directory.appendingPathComponent("\(baseName ?? timestampedName()).png")
-        try writePNG(image, to: url)
+        let format = effectiveFormat(for: image, requested: requestedFormat ?? AppSettings.imageFormat)
+        let url = directory.appendingPathComponent(
+            "\(baseName ?? name()).\(format.fileExtension)"
+        )
+        try write(image, to: url, format: format)
         return url
     }
+
+    /// `name.ext`, or `name 2.ext`, `name 3.ext`… if taken. Templates
+    /// without a time or counter token (`{app}` alone, say) collide
+    /// constantly, and silently overwriting a previous capture would be the
+    /// worst possible outcome.
+    private static func uniqueURL(in directory: URL, baseName: String, fileExtension: String) -> URL {
+        let candidate = directory.appendingPathComponent("\(baseName).\(fileExtension)")
+        guard FileManager.default.fileExists(atPath: candidate.path) else { return candidate }
+
+        for suffix in 2...999 {
+            let next = directory.appendingPathComponent("\(baseName) \(suffix).\(fileExtension)")
+            if !FileManager.default.fileExists(atPath: next.path) { return next }
+        }
+        // Pathological: fall back to something guaranteed unique.
+        return directory.appendingPathComponent("\(baseName) \(UUID().uuidString).\(fileExtension)")
+    }
+
+    // MARK: - Clipboard
 
     static func copyToClipboard(_ image: CGImage) {
         let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))

@@ -49,6 +49,14 @@ nonisolated enum NotificationPosition: String, CaseIterable {
 nonisolated enum AppSettings {
     enum Keys {
         static let saveFolderPath = "saveFolderPath"
+        static let filenameTemplate = "filenameTemplate"
+        static let filenameCounter = "filenameCounter"
+        static let imageFormat = "imageFormat"
+        static let imageQuality = "imageQuality"
+        static let showsCursorInCaptures = "showsCursorInCaptures"
+        static let retentionDays = "retentionDays"
+        static let uploadTimeoutSeconds = "uploadTimeoutSeconds"
+        static let uploadRetryCount = "uploadRetryCount"
         static let showPreviewAfterCapture = "showPreviewAfterCapture"
         static let copyAfterCapture = "copyAfterCapture"
         static let saveAfterCapture = "saveAfterCapture"
@@ -91,6 +99,18 @@ nonisolated enum AppSettings {
     }
 
     enum Defaults {
+        /// Reproduces the original hardcoded naming exactly, so the
+        /// out-of-box behaviour is unchanged.
+        static let filenameTemplate = FilenameTemplate.defaultTemplate
+        static let imageFormat = ImageFormat.png
+        /// Only applies to lossy formats. 0.9 is visually indistinguishable
+        /// from lossless for UI screenshots at a fraction of the size.
+        static let imageQuality = 0.9
+        static let showsCursorInCaptures = false
+        /// 0 = retention off. Deliberately the default: this deletes files.
+        static let retentionDays = 0
+        static let uploadTimeoutSeconds = 30.0
+        static let uploadRetryCount = 2
         static let showPreviewAfterCapture = true
         static let copyAfterCapture = true
         static let saveAfterCapture = true
@@ -159,6 +179,42 @@ nonisolated enum AppSettings {
             return defaultSaveFolder
         }
         return url
+    }
+
+    // MARK: - Files and capture
+
+    static var filenameTemplate: String {
+        string(forKey: Keys.filenameTemplate) ?? Defaults.filenameTemplate
+    }
+
+    /// Returns the current counter and advances it. Stored rather than
+    /// derived so `{counter}` keeps climbing across launches.
+    static func nextFilenameCounter() -> Int {
+        let next = UserDefaults.standard.integer(forKey: Keys.filenameCounter) + 1
+        UserDefaults.standard.set(next, forKey: Keys.filenameCounter)
+        return next
+    }
+
+    static var imageFormat: ImageFormat {
+        let raw = UserDefaults.standard.string(forKey: Keys.imageFormat) ?? ""
+        return ImageFormat(rawValue: raw) ?? Defaults.imageFormat
+    }
+
+    /// 0…1, only meaningful for lossy formats.
+    static var imageQuality: Double {
+        let value = double(forKey: Keys.imageQuality, default: Defaults.imageQuality)
+        return min(max(value, 0.1), 1)
+    }
+
+    static var showsCursorInCaptures: Bool {
+        bool(forKey: Keys.showsCursorInCaptures, default: Defaults.showsCursorInCaptures)
+    }
+
+    /// Days before a saved capture is cleaned up; 0 = keep forever. Only
+    /// ever applies to files QuickSnap tagged — see `SaveFolderCleaner`.
+    static var retentionDays: Int {
+        let stored = UserDefaults.standard.object(forKey: Keys.retentionDays) as? Int
+        return max(stored ?? Defaults.retentionDays, 0)
     }
 
     static var showsPreviewAfterCapture: Bool {
@@ -309,6 +365,51 @@ nonisolated enum AppSettings {
     /// consulted when `uploadDestination` is non-nil.
     static var uploadShowsPreviewButton: Bool {
         bool(forKey: Keys.uploadShowsPreviewButton, default: Defaults.uploadShowsPreviewButton)
+    }
+
+    /// Per-request timeout for upload providers, in seconds.
+    static var uploadTimeoutSeconds: TimeInterval {
+        let value = double(forKey: Keys.uploadTimeoutSeconds, default: Defaults.uploadTimeoutSeconds)
+        return min(max(value, 5), 300)
+    }
+
+    /// Extra attempts after a failure (0 = try once, don't retry). Only
+    /// transient failures are retried — see `UploadCoordinator`.
+    static var uploadRetryCount: Int {
+        let stored = UserDefaults.standard.object(forKey: Keys.uploadRetryCount) as? Int
+        return min(max(stored ?? Defaults.uploadRetryCount, 0), 5)
+    }
+
+    // MARK: - Reset
+
+    /// Clears every stored setting and both Keychain secrets — the Advanced
+    /// page's "Reset All Settings". Enumerated explicitly rather than wiping
+    /// the whole domain so nothing outside our own keys is touched.
+    static func resetAll() {
+        let keys = [
+            Keys.saveFolderPath, Keys.filenameTemplate, Keys.filenameCounter,
+            Keys.imageFormat, Keys.imageQuality, Keys.showsCursorInCaptures,
+            Keys.retentionDays, Keys.uploadTimeoutSeconds, Keys.uploadRetryCount,
+            Keys.showPreviewAfterCapture, Keys.copyAfterCapture, Keys.saveAfterCapture,
+            Keys.notificationPosition, Keys.previewAutoDismissSeconds,
+            Keys.toastAutoDismissSeconds, Keys.showTextPreviewInToast,
+            Keys.windowBackgroundStyle, Keys.windowBackgroundPadding, Keys.windowBackgroundColor,
+            Keys.markupDefaultColor, Keys.markupDefaultStrokeStep,
+            Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,
+            Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
+            Keys.markupShowsUploadButton,
+            Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
+            Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
+            Keys.immichServerURL, Keys.immichAlbumID, Keys.immichAlbumName,
+            Keys.s3Endpoint, Keys.s3Region, Keys.s3Bucket, Keys.s3AccessKeyID,
+            Keys.s3KeyPrefix, Keys.s3PublicBaseURL, Keys.s3UsesPathStyle, Keys.s3PublicRead,
+        ] + HotkeyAction.allCases.map(Keys.hotkey(for:))
+
+        for key in keys {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        try? KeychainStore.remove(KeychainStore.Account.immichAPIKey)
+        try? KeychainStore.remove(KeychainStore.Account.s3SecretKey)
     }
 
     /// Current shortcut for `action`, nil when explicitly cleared. The

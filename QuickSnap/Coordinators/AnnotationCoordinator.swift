@@ -61,7 +61,8 @@ final class AnnotationCoordinator: NSObject {
             backing: .buffered,
             defer: false
         )
-        window.title = fileURL?.lastPathComponent ?? "\(ScreenshotSaver.timestampedName()).png"
+        window.title = fileURL?.lastPathComponent
+            ?? "\(ScreenshotSaver.name()).\(AppSettings.imageFormat.fileExtension)"
         window.titleVisibility = .hidden
         // A titled window is opaque by default, which leaves the SwiftUI
         // `.regularMaterial` backgrounds nothing translucent to blur —
@@ -94,16 +95,20 @@ final class AnnotationCoordinator: NSObject {
                 guard let self else { return }
                 self.uploadCoordinator.upload(
                     flattened,
-                    filename: "\(Self.annotatedName(forOriginal: fileURL)).png",
+                    filename: "\(Self.annotatedName(forOriginal: fileURL)).\(AppSettings.imageFormat.fileExtension)",
                     on: window?.screen ?? NSScreen.main
                 )
             },
             onExportDragFile: { flattened in
                 // Temp dir isn't TCC-protected, so this is safe wherever
                 // the drop machinery calls it.
-                try ScreenshotSaver.writeTemporaryPNG(
+                // Always PNG: `AnnotatedFileDrag` declares a static
+                // `.png` content type, so the file on disk has to match
+                // what the drop destination was promised.
+                try ScreenshotSaver.writeTemporaryImage(
                     flattened,
-                    named: Self.annotatedName(forOriginal: fileURL)
+                    named: Self.annotatedName(forOriginal: fileURL),
+                    format: .png
                 )
             },
             onCanvasAspectChanged: { [weak self, weak window] aspect in
@@ -210,7 +215,7 @@ final class AnnotationCoordinator: NSObject {
 
     private func saveAnnotatedCopy(_ image: CGImage, originalFileURL: URL?, attachedTo window: NSWindow) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
+        panel.allowedContentTypes = ImageFormat.allCases.map(\.contentType)
         panel.directoryURL = ScreenshotSaver.saveDirectory
         panel.nameFieldStringValue = Self.annotatedName(forOriginal: originalFileURL)
         panel.beginSheetModal(for: window) { response in
@@ -220,7 +225,7 @@ final class AnnotationCoordinator: NSObject {
                     // Detached: a first write into a TCC-protected folder
                     // blocks on the consent prompt (see CLAUDE.md).
                     try await Task.detached(priority: .userInitiated) {
-                        try ScreenshotSaver.writePNG(image, to: url)
+                        try ScreenshotSaver.write(image, to: url)
                     }.value
                 } catch {
                     let alert = NSAlert()

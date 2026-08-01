@@ -63,13 +63,15 @@ nonisolated enum ImmichError: LocalizedError {
 /// grouping a client controls is the **album**, which is why the settings
 /// offer an album picker rather than a folder chooser.
 nonisolated enum ImmichClient {
-    private static let session: URLSession = {
+    /// Built per call rather than cached, so a timeout change in Settings
+    /// takes effect on the next upload instead of at the next launch.
+    private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 300
+        configuration.timeoutIntervalForRequest = AppSettings.uploadTimeoutSeconds
+        configuration.timeoutIntervalForResource = AppSettings.uploadTimeoutSeconds * 10
         configuration.waitsForConnectivity = false
         return URLSession(configuration: configuration)
-    }()
+    }
 
     // MARK: - Server address
 
@@ -187,8 +189,9 @@ nonisolated enum ImmichClient {
     /// non-strict Zod object, so it silently drops fields it doesn't know
     /// rather than rejecting the request.
     static func upload(
-        pngData: Data,
+        imageData: Data,
         filename: String,
+        mimeType: String,
         capturedAt: Date,
         credentials: ImmichCredentials
     ) async throws -> (assetId: String, isDuplicate: Bool) {
@@ -216,8 +219,8 @@ nonisolated enum ImmichClient {
 
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"assetData\"; filename=\"\(filename)\"\r\n")
-        body.append("Content-Type: image/png\r\n\r\n")
-        body.append(pngData)
+        body.append("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(imageData)
         body.append("\r\n--\(boundary)--\r\n")
 
         var request = try makeRequest("assets", method: "POST", credentials: credentials)
@@ -259,7 +262,7 @@ nonisolated enum ImmichClient {
     }
 
     private static func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await makeSession().data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ImmichError.unexpectedResponse }
 
         guard (200..<300).contains(http.statusCode) else {

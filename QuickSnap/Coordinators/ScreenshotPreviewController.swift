@@ -56,7 +56,7 @@ final class ScreenshotPreviewController {
 
         // Written up front rather than lazily at drag time so a failure can
         // simply hide the drag handle instead of surfacing mid-drag.
-        let dragFileURL = fileURL ?? (try? ScreenshotSaver.writeTemporaryPNG(image))
+        let dragFileURL = fileURL ?? (try? ScreenshotSaver.writeTemporaryImage(image))
 
         let fullPointSize = CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
         // Floor the panel at whatever the hover action bar actually needs

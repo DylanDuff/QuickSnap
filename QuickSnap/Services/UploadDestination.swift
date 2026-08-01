@@ -7,11 +7,15 @@ import Foundation
 
 /// One screenshot, ready to send.
 nonisolated struct UploadRequest: Sendable {
-    let pngData: Data
-    /// Suggested asset/object name, e.g. `QuickSnap 2026-08-01 at 12.30.45.png`.
-    /// Destinations may sanitize it (S3 keys, for instance, are better off
-    /// without spaces) — the name is a request, not a contract.
+    let imageData: Data
+    /// Suggested asset/object name including extension, e.g.
+    /// `QuickSnap 2026-08-01 at 12.30.45.png`. Destinations may sanitize it
+    /// (S3 keys, for instance, are better off without spaces) — the name is
+    /// a request, not a contract.
     let filename: String
+    /// How `imageData` is encoded, so destinations can send the right
+    /// `Content-Type` instead of assuming PNG.
+    let format: ImageFormat
     let capturedAt: Date
 }
 

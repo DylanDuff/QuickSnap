@@ -27,8 +27,9 @@ nonisolated struct ImmichDestination: UploadDestination {
 
     func upload(_ request: UploadRequest) async throws -> UploadOutcome {
         let uploaded = try await ImmichClient.upload(
-            pngData: request.pngData,
+            imageData: request.imageData,
             filename: request.filename,
+            mimeType: request.format.mimeType,
             capturedAt: request.capturedAt,
             credentials: credentials
         )

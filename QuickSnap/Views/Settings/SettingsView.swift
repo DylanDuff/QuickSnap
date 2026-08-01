@@ -138,7 +138,7 @@ struct SettingsView: View {
             UploadingSettingsView()
 
         case .advanced:
-            PlaceholderSettingsSection(title: "Advanced")
+            AdvancedSettingsView()
 
         case .about:
             AboutSettingsView()

@@ -39,6 +39,7 @@ final class CaptureCoordinator: ObservableObject {
         }
         hotkeyCoordinator.start()
         ZoomResizeProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
+        runRetentionCleanup()
     }
 
     func startAreaCapture() {
@@ -74,6 +75,17 @@ final class CaptureCoordinator: ObservableObject {
         await Task.detached(priority: .userInitiated) {
             try? ScreenshotSaver.prepareSaveDirectory()
         }.value
+    }
+
+    /// Applies the retention setting once per launch, off the main thread.
+    /// Only ever removes files QuickSnap tagged as its own, and moves them
+    /// to the Trash rather than deleting outright — see `SaveFolderCleaner`.
+    private func runRetentionCleanup() {
+        let days = AppSettings.retentionDays
+        guard days > 0 else { return }
+        Task.detached(priority: .background) {
+            SaveFolderCleaner.clean(olderThan: days)
+        }
     }
 
     // MARK: - Permission
@@ -177,8 +189,12 @@ final class CaptureCoordinator: ObservableObject {
             guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
                 throw ScreenCaptureManagerError.displayNotFound
             }
-            let image = try await ScreenCaptureManager.captureFullScreen(display: display, scale: screen.backingScaleFactor)
-            await finish(with: image, screen: screen)
+            let image = try await ScreenCaptureManager.captureFullScreen(
+                display: display,
+                scale: screen.backingScaleFactor,
+                showsCursor: AppSettings.showsCursorInCaptures
+            )
+            await finish(with: image, screen: screen, context: Self.filenameContext(for: image))
         } catch {
             presentError(error)
         }
@@ -191,8 +207,13 @@ final class CaptureCoordinator: ObservableObject {
                 guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
                     throw ScreenCaptureManagerError.displayNotFound
                 }
-                let image = try await ScreenCaptureManager.captureArea(rect: rect, display: display, scale: screen.backingScaleFactor)
-                await finish(with: image, screen: screen)
+                let image = try await ScreenCaptureManager.captureArea(
+                    rect: rect,
+                    display: display,
+                    scale: screen.backingScaleFactor,
+                    showsCursor: AppSettings.showsCursorInCaptures
+                )
+                await finish(with: image, screen: screen, context: Self.filenameContext(for: image))
             } catch {
                 presentError(error)
             }
@@ -230,7 +251,11 @@ final class CaptureCoordinator: ObservableObject {
     private func captureSelectedWindow(_ window: SCWindow, on screen: NSScreen) {
         Task {
             do {
-                let image = try await ScreenCaptureManager.captureWindow(window, scale: screen.backingScaleFactor)
+                let image = try await ScreenCaptureManager.captureWindow(
+                    window,
+                    scale: screen.backingScaleFactor,
+                    showsCursor: AppSettings.showsCursorInCaptures
+                )
                 let style = AppSettings.windowBackgroundStyle
                 let paddingPixels = AppSettings.windowBackgroundPadding * screen.backingScaleFactor
                 let backgroundColor = AppSettings.windowBackgroundColor
@@ -246,19 +271,47 @@ final class CaptureCoordinator: ObservableObject {
                         wallpaper: WindowBackgroundRenderer.wallpaper(at: wallpaperURL)
                     )
                 }.value
-                await finish(with: styled, screen: screen)
+                await finish(
+                    with: styled,
+                    screen: screen,
+                    context: Self.filenameContext(
+                        for: styled,
+                        appName: window.owningApplication?.applicationName,
+                        windowTitle: window.title
+                    )
+                )
             } catch {
                 presentError(error)
             }
         }
     }
 
-    private func finish(with image: CGImage, screen: NSScreen) async {
+    /// Names a capture: the window's own app/title when we have them,
+    /// otherwise whatever app was frontmost. The overlay panels are
+    /// non-activating, so the user's app is still frontmost during a
+    /// session and `{app}` resolves to what they were actually looking at.
+    private static func filenameContext(
+        for image: CGImage,
+        appName: String? = nil,
+        windowTitle: String? = nil
+    ) -> FilenameContext {
+        FilenameContext(
+            date: Date(),
+            appName: appName ?? NSWorkspace.shared.frontmostApplication?.localizedName,
+            windowTitle: windowTitle,
+            pixelWidth: image.width,
+            pixelHeight: image.height
+        )
+    }
+
+    private func finish(with image: CGImage, screen: NSScreen, context: FilenameContext) async {
         do {
             // Detached so a TCC consent prompt (first write to ~/Documents)
             // blocks a background thread, never the main thread.
             let url = AppSettings.savesAfterCapture
-                ? try await Task.detached(priority: .userInitiated) { try ScreenshotSaver.save(image) }.value
+                ? try await Task.detached(priority: .userInitiated) {
+                    try ScreenshotSaver.save(image, context: context)
+                }.value
                 : nil
             if AppSettings.copiesAfterCapture {
                 ScreenshotSaver.copyToClipboard(image)

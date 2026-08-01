@@ -51,37 +51,37 @@ enum ScreenCaptureManager {
         }
     }
 
-    static func captureFullScreen(display: SCDisplay, scale: CGFloat) async throws -> CGImage {
+    static func captureFullScreen(display: SCDisplay, scale: CGFloat, showsCursor: Bool = false) async throws -> CGImage {
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
         config.width = Int(CGFloat(display.width) * scale)
         config.height = Int(CGFloat(display.height) * scale)
-        config.showsCursor = false
+        config.showsCursor = showsCursor
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
     }
 
     /// - Parameter rect: Selection rectangle in points, local to `display`'s own
     ///   top-left-origin coordinate space (i.e. the same space `SelectionOverlayView`
     ///   reports, since that view is flipped and window-aligned to the display).
-    static func captureArea(rect: CGRect, display: SCDisplay, scale: CGFloat) async throws -> CGImage {
+    static func captureArea(rect: CGRect, display: SCDisplay, scale: CGFloat, showsCursor: Bool = false) async throws -> CGImage {
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()
         config.sourceRect = rect
         config.width = max(1, Int(rect.width * scale))
         config.height = max(1, Int(rect.height * scale))
-        config.showsCursor = false
+        config.showsCursor = showsCursor
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
     }
 
     /// Captures the bare window, edge to edge: the system shadow is excluded
     /// and alpha (the window's rounded corners) is preserved, so
     /// `WindowBackgroundRenderer` can pad it out and draw its own shadow.
-    static func captureWindow(_ window: SCWindow, scale: CGFloat) async throws -> CGImage {
+    static func captureWindow(_ window: SCWindow, scale: CGFloat, showsCursor: Bool = false) async throws -> CGImage {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
         config.width = max(1, Int(window.frame.width * scale))
         config.height = max(1, Int(window.frame.height * scale))
-        config.showsCursor = false
+        config.showsCursor = showsCursor
         config.ignoreShadowsSingleWindow = true
         config.shouldBeOpaque = false
         return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
