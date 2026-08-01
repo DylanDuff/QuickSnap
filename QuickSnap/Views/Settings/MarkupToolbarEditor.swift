@@ -45,6 +45,30 @@ struct MarkupToolbarEditor: View {
     // MARK: - The pill
 
     private var pill: some View {
+        // Scrolls rather than squeezing: the real pill is one row, so
+        // wrapping here would misrepresent it, and a toolbar can hold more
+        // items than the settings window is wide even after the window was
+        // allowed to grow.
+        ScrollView(.horizontal) {
+            pillContents
+        }
+        .scrollIndicators(.never)
+        .padding(.horizontal, 10)
+        .frame(height: 48)
+        .background(.quaternary.opacity(0.5), in: Capsule())
+        .overlay(Capsule().strokeBorder(.separator, lineWidth: 1))
+        .overlay(alignment: .leading) {
+            if layout.items.isEmpty {
+                Text("Empty — drag something in")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 16)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+
+    private var pillContents: some View {
         HStack(spacing: 0) {
             ForEach(Array(layout.items.enumerated()), id: \.offset) { index, item in
                 insertionMarker(at: index)
@@ -60,7 +84,7 @@ struct MarkupToolbarEditor: View {
             // The tail target, so something can be dropped at the end.
             insertionMarker(at: layout.items.count)
             Color.clear
-                .frame(minWidth: 24, maxWidth: .infinity, minHeight: Layout.chip)
+                .frame(width: 40, height: Layout.chip)
                 .contentShape(Rectangle())
                 .dropDestination(for: DraggedToolbarItem.self) { payloads, _ in
                     move(payloads, to: layout.items.count)
@@ -69,19 +93,7 @@ struct MarkupToolbarEditor: View {
                     dropIndex = targeted ? end : (dropIndex == end ? nil : dropIndex)
                 }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 48)
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator, lineWidth: 1))
-        .overlay(alignment: .leading) {
-            if layout.items.isEmpty {
-                Text("Empty — drag something in")
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 16)
-                    .allowsHitTesting(false)
-            }
-        }
+        .frame(minHeight: 48)
     }
 
     private func insertionMarker(at index: Int) -> some View {

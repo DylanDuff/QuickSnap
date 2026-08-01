@@ -122,11 +122,21 @@ struct SettingsView: View {
             }
             .listStyle(.sidebar)
             .contentMargins(.horizontal, 0, for: .scrollContent)
+            // Pin the sidebar so any extra window width goes to the detail
+            // pane, which is what actually needs it.
+            .navigationSplitViewColumnWidth(min: 180, ideal: 190, max: 210)
         } detail: {
             detailContent
         }
         .toolbar(removing: .title)
-        .frame(width: 700, height: 450)
+        // A range rather than a fixed size: the Markup tab's toolbar editor
+        // lays items out in one row like the real pill, so a long toolbar
+        // needs somewhere to go. Pinning the window at 700 pt squeezed the
+        // rest of the page instead.
+        .frame(
+            minWidth: 720, idealWidth: 780, maxWidth: 1000,
+            minHeight: 460, idealHeight: 520, maxHeight: 820
+        )
         .background(.thinMaterial)
         .scrollIndicators(.never)
     }
@@ -329,5 +339,5 @@ private extension Bundle {
 
 #Preview {
     SettingsView()
-        .frame(width: 700, height: 450)
+        .frame(width: 780, height: 520)
 }

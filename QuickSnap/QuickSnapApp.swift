@@ -12,6 +12,10 @@ import AppKit
 struct QuickSnapApp: App {
     @StateObject private var captureCoordinator = CaptureCoordinator()
 
+    /// Used instead of `SettingsLink` so the app can be activated first —
+    /// see the Settings… item below.
+    @Environment(\.openSettings) private var openSettings
+
     // Read reactively so the menu reflects hotkey changes immediately. The
     // shortcuts shown here are display only — the actual global trigger is
     // the Carbon registration in HotkeyCoordinator, which consumes the
@@ -79,8 +83,14 @@ struct QuickSnapApp: App {
             
             Divider()
             
-            SettingsLink {
-                Text("Settings…")
+            // Not a `SettingsLink`: that opens the window without
+            // activating the app, and QuickSnap is an accessory app that is
+            // rarely frontmost — so the settings window would appear behind
+            // whatever the user was looking at, which reads as the menu item
+            // doing nothing. Activating first puts it in front, every time.
+            Button("Settings…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
             }
             
             Divider()
@@ -93,7 +103,7 @@ struct QuickSnapApp: App {
 
         Settings {
             SettingsView()
-                .frame(minWidth: 700, minHeight: 450)
+                .frame(minWidth: 720, minHeight: 460)
                 .background(WindowConfigurator())
             
         }
@@ -126,6 +136,12 @@ struct WindowConfigurator: NSViewRepresentable {
         
         DispatchQueue.main.async {
             guard let window = view.window else { return }
+
+            // First open of the window in a session: the menu item activates
+            // the app, but this window is created after that, so it needs
+            // ordering front itself.
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
 
             // The settings window shows no title bar chrome except the
             // traffic lights: SettingsView strips the toolbar's contents
