@@ -7,29 +7,14 @@ import AppKit
 import SwiftUI
 
 /// Markup tab: the defaults new annotation windows open with (color and
-/// stroke size) and which output buttons the markup toolbar shows. Uses
-/// `@AppStorage` with `AppSettings.Keys`/`Defaults`, like the other tabs.
+/// stroke size), and the toolbar's contents and order (`MarkupToolbarEditor`).
+/// Uses `@AppStorage` with `AppSettings.Keys`/`Defaults`, like the other tabs.
 struct MarkupSettingsView: View {
     @AppStorage(AppSettings.Keys.markupDefaultColor)
     private var defaultColorHex = AppSettings.Defaults.markupDefaultColor
 
     @AppStorage(AppSettings.Keys.markupDefaultStrokeStep)
     private var defaultStrokeStep = AppSettings.Defaults.markupDefaultStrokeStep
-
-    @AppStorage(AppSettings.Keys.markupShowsCopyButton)
-    private var showsCopyButton = AppSettings.Defaults.markupShowsCopyButton
-
-    @AppStorage(AppSettings.Keys.markupShowsSaveButton)
-    private var showsSaveButton = AppSettings.Defaults.markupShowsSaveButton
-
-    @AppStorage(AppSettings.Keys.markupShowsSaveAsButton)
-    private var showsSaveAsButton = AppSettings.Defaults.markupShowsSaveAsButton
-
-    @AppStorage(AppSettings.Keys.markupShowsDragButton)
-    private var showsDragButton = AppSettings.Defaults.markupShowsDragButton
-
-    @AppStorage(AppSettings.Keys.markupShowsRedactionButton)
-    private var showsRedactionButton = AppSettings.Defaults.markupShowsRedactionButton
 
     var body: some View {
         Form {
@@ -61,39 +46,12 @@ struct MarkupSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Toolbar Save Options") {
-                Toggle("Copy to clipboard", isOn: $showsCopyButton)
-                    .disabled(isOnlyEnabledOption(showsCopyButton))
-
-                Toggle("Save to screenshots folder", isOn: $showsSaveButton)
-                    .disabled(isOnlyEnabledOption(showsSaveButton))
-
-                Toggle("Save As…", isOn: $showsSaveAsButton)
-                    .disabled(isOnlyEnabledOption(showsSaveAsButton))
-
-                Toggle("Drag out as a file", isOn: $showsDragButton)
-                    .disabled(isOnlyEnabledOption(showsDragButton))
-
-                Text("Choose which output buttons the markup toolbar shows. At least one stays on, so an annotated screenshot can always leave the editor. Saved copies never overwrite the original.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Tools") {
-                Toggle("Check for sensitive text", isOn: $showsRedactionButton)
-
-                Text("Adds a button that reads the screenshot on this Mac and highlights anything that looks like a key, token or card number, so you can black it out. The same check runs automatically before an upload, if uploading is switched on.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            Section("Toolbar") {
+                MarkupToolbarEditor()
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-    }
-
-    /// A toggle is locked while it's the only output option still enabled.
-    private func isOnlyEnabledOption(_ option: Bool) -> Bool {
-        option && [showsCopyButton, showsSaveButton, showsSaveAsButton, showsDragButton].filter(\.self).count == 1
     }
 
     /// Bridges the ColorPicker to the `#RRGGBB` string stored in defaults.

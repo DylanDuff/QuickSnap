@@ -24,27 +24,18 @@ struct MarkupToolbar: View {
     var onScanForSensitiveContent: () -> Void
     var dragFile: AnnotatedFileDrag
 
-    // Which output buttons show — configured in Settings → Markup; live
-    // via @AppStorage so open windows follow changes. The settings UI
-    // guarantees at least one stays on.
-    @AppStorage(AppSettings.Keys.markupShowsCopyButton)
-    private var showsCopyButton = AppSettings.Defaults.markupShowsCopyButton
-    @AppStorage(AppSettings.Keys.markupShowsSaveButton)
-    private var showsSaveButton = AppSettings.Defaults.markupShowsSaveButton
-    @AppStorage(AppSettings.Keys.markupShowsSaveAsButton)
-    private var showsSaveAsButton = AppSettings.Defaults.markupShowsSaveAsButton
-    @AppStorage(AppSettings.Keys.markupShowsDragButton)
-    private var showsDragButton = AppSettings.Defaults.markupShowsDragButton
-    @AppStorage(AppSettings.Keys.markupShowsUploadButton)
-    private var showsUploadButton = AppSettings.Defaults.markupShowsUploadButton
-    /// Not an output button — it acts on the canvas, like crop — so it sits
-    /// with those and has no part in the "keep at least one export" rule.
-    @AppStorage(AppSettings.Keys.markupShowsRedactionButton)
-    private var showsRedactionButton = AppSettings.Defaults.markupShowsRedactionButton
-    /// Upload is only offered when a provider is actually switched on — the
-    /// button's own toggle isn't enough, or it would appear and then fail.
+    // What the pill contains and in what order — configured in
+    // Settings → Markup, read live so open windows follow changes.
+    @AppStorage(AppSettings.Keys.markupToolbarLayout)
+    private var layoutData = Data()
+    /// Upload is only offered when a provider is actually switched on —
+    /// having placed the button isn't enough, or it would appear and fail.
     @AppStorage(AppSettings.Keys.uploadingEnabled)
     private var uploadingEnabled = AppSettings.Defaults.uploadingEnabled
+
+    private var layout: MarkupToolbarLayout {
+        MarkupToolbarLayout.decode(layoutData) ?? .default
+    }
 
     /// A preset row that can slide in over the pill's main controls.
     /// Selecting a color or stroke preset swaps back immediately; the shape
@@ -101,21 +92,49 @@ struct MarkupToolbar: View {
             )
     }
 
+    /// Rendered straight from the stored order — no grouping logic, because
+    /// separators are items the user places rather than something the app
+    /// infers. Once anything can sit anywhere, there are no groups left to
+    /// guess at.
     private var mainControls: some View {
         HStack(spacing: 6) {
-            toolButtons
-            divider
-            insertButton
-            cropButton
-            if showsRedactionButton {
-                redactionButton
+            ForEach(Array(layout.items.enumerated()), id: \.offset) { _, item in
+                view(for: item)
             }
-            divider
-            stylePickers
-            if showsCopyButton || showsSaveButton || showsSaveAsButton || showsDragButton || showsUpload {
-                divider
-                outputButtons
+        }
+    }
+
+    @ViewBuilder
+    private func view(for item: MarkupToolbarItem) -> some View {
+        switch item {
+        case .select: toolButton(.select)
+        case .pen: toolButton(.pen)
+        case .highlighter: toolButton(.highlighter)
+        case .eraser: toolButton(.eraser)
+        case .insert: insertButton
+        case .crop: cropButton
+        case .redact: redactionButton
+        case .color: colorButton
+        case .stroke: strokeButton
+        case .copy:
+            ToolbarIconButton(systemImage: "doc.on.doc", action: onCopy)
+                .help("Copy annotated image")
+        case .save:
+            ToolbarIconButton(systemImage: "square.and.arrow.down", action: onSave)
+                .help("Save annotated image to your screenshots folder")
+        case .saveAs:
+            ToolbarIconButton(systemImage: "square.and.arrow.down.on.square", action: onSaveAs)
+                .help("Save annotated image as…")
+        case .dragOut:
+            ToolbarIconDragSource(systemImage: "document.viewfinder", payload: dragFile)
+                .help("Drag out as a file")
+        case .upload:
+            if uploadingEnabled {
+                ToolbarIconButton(systemImage: "arrow.up.circle", action: onUpload)
+                    .help("Upload annotated image")
             }
+        case .divider:
+            divider
         }
     }
 
@@ -243,25 +262,28 @@ struct MarkupToolbar: View {
         .help(help)
     }
 
-    private var stylePickers: some View {
-        HStack(spacing: 8) {
-            Button {
-                withAnimation(Self.rowSwapAnimation) { activePresetRow = .color }
-            } label: {
-                colorSwatch(controller.color, size: 20)
-            }
-            .buttonStyle(PressScaleButtonStyle())
-            .help("Markup color")
-            Button {
-                withAnimation(Self.rowSwapAnimation) { activePresetRow = .stroke }
-            } label: {
-                strokeSquiggle(for: controller.strokeWidth, size: 13)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(PressScaleButtonStyle())
-            .help("Stroke width")
+    /// Colour and stroke are separate items: either can be placed anywhere
+    /// or left out, so they can't be one view any more.
+    private var colorButton: some View {
+        Button {
+            withAnimation(Self.rowSwapAnimation) { activePresetRow = .color }
+        } label: {
+            colorSwatch(controller.color, size: 20)
         }
+        .buttonStyle(PressScaleButtonStyle())
+        .help("Markup color")
+    }
+
+    private var strokeButton: some View {
+        Button {
+            withAnimation(Self.rowSwapAnimation) { activePresetRow = .stroke }
+        } label: {
+            strokeSquiggle(for: controller.strokeWidth, size: 13)
+                .frame(width: 20, height: 20)
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressScaleButtonStyle())
+        .help("Stroke width")
     }
 
     private var presetStrokeRow: some View {
@@ -317,39 +339,6 @@ struct MarkupToolbar: View {
     }
 
     /// The upload button needs both its own toggle and a live provider.
-    private var showsUpload: Bool {
-        showsUploadButton && uploadingEnabled
-    }
-
-    private var outputButtons: some View {
-        HStack(spacing: 6) {
-            if showsDragButton {
-                ToolbarIconDragSource(systemImage: "document.viewfinder", payload: dragFile)
-                    .help("Drag out as a file")
-            }
-
-            if showsCopyButton {
-                ToolbarIconButton(systemImage: "doc.on.doc", action: onCopy)
-                    .help("Copy annotated image")
-            }
-
-            if showsSaveButton {
-                ToolbarIconButton(systemImage: "square.and.arrow.down", action: onSave)
-                    .help("Save annotated image to your screenshots folder")
-            }
-
-            if showsSaveAsButton {
-                ToolbarIconButton(systemImage: "square.and.arrow.down.on.square", action: onSaveAs)
-                    .help("Save annotated image as…")
-            }
-
-            if showsUpload {
-                ToolbarIconButton(systemImage: "arrow.up.circle", action: onUpload)
-                    .help("Upload annotated image")
-            }
-        }
-    }
-
     private static func symbolName(for tool: MarkupTool) -> String {
         switch tool {
         case .select: "cursorarrow"

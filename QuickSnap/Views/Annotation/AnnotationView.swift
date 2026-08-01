@@ -42,7 +42,47 @@ struct AnnotationView: View {
     @ObservedObject var canvas: MarkupCanvasController
     /// Fired when a crop changes the canvas's aspect ratio (width / height)
     /// — `AnnotationCoordinator` re-locks and resizes the window to match.
+    /// Save and Save As, wired to the same coordinator actions the toolbar
+    /// buttons use — see `saveShortcuts`.
+    let onSave: (CGImage) -> Void
+    let onSaveAs: (CGImage) -> Void
     let onCanvasAspectChanged: (CGFloat) -> Void
+
+    /// ⌘S / ⌘⇧S, always available regardless of what the toolbar contains.
+    ///
+    /// This is what makes a freely customisable toolbar safe: the layout
+    /// editor lets every export button be removed, and without a shortcut
+    /// that would strand an annotated screenshot in a window it can't leave.
+    ///
+    /// Deliberately **no ⌘C**. Copy would be the obvious third, but the
+    /// canvas is a remote PaperKit view where ⌘C means "copy the selected
+    /// text or markup" while a text box is being edited — and a SwiftUI
+    /// `keyboardShortcut` resolves through `performKeyEquivalent`, *before*
+    /// the remote view ever sees the key. Taking ⌘C would quietly break text
+    /// editing to guard against a case ⌘S already covers.
+    ///
+    /// They live here, in the window's own content, rather than in the
+    /// toolbar pill: that panel is `canBecomeKey == false`, so it never
+    /// receives key events at all.
+    private var saveShortcuts: some View {
+        Group {
+            Button("") { export(then: onSave) }
+                .keyboardShortcut("s", modifiers: .command)
+            Button("") { export(then: onSaveAs) }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// Flattens before handing over, so a shortcut produces exactly what the
+    /// equivalent toolbar button would.
+    private func export(then handle: @escaping (CGImage) -> Void) {
+        Task {
+            handle(await canvas.exportFlattened() ?? canvas.baseImage)
+        }
+    }
 
     var body: some View {
         MarkupCanvasView(controller: canvas)
@@ -81,6 +121,7 @@ struct AnnotationView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(.regularMaterial)
             )
+            .background(saveShortcuts)
             .ignoresSafeArea(.container, edges: .top)
             .onChange(of: canvas.canvasBounds) { _, bounds in
                 guard bounds.height > 0 else { return }

@@ -176,6 +176,14 @@ final class AnnotationCoordinator: NSObject {
 
         let annotationView = AnnotationView(
             canvas: canvas,
+            onSave: { [weak self, weak window] flattened in
+                guard let self, let window else { return }
+                self.saveAnnotatedCopyToFolder(flattened, attachedTo: window)
+            },
+            onSaveAs: { [weak self, weak window] flattened in
+                guard let self, let window else { return }
+                self.saveAnnotatedCopy(flattened, originalFileURL: file.url, attachedTo: window)
+            },
             onCanvasAspectChanged: { [weak self, weak window] aspect in
                 // Fired from a SwiftUI onChange during view update — defer
                 // the window mutation out of that pass.

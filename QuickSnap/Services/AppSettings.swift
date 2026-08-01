@@ -113,6 +113,7 @@ nonisolated enum AppSettings {
         static let markupShowsDragButton = "markupShowsDragButton"
         static let markupShowsUploadButton = "markupShowsUploadButton"
         static let markupShowsRedactionButton = "markupShowsRedactionButton"
+        static let markupToolbarLayout = "markupToolbarLayout"
         // Uploading — provider-neutral settings…
         static let uploadingEnabled = "uploadingEnabled"
         static let uploadProvider = "uploadProvider"
@@ -320,13 +321,49 @@ nonisolated enum AppSettings {
     /// - `notificationPosition` → `previewPosition` + `toastPosition`
     ///   (2026-08, when the preview gained `.dynamic` and the two panels
     ///   stopped sharing one setting).
+    /// - the five `markupShows*Button` flags → `markupToolbarLayout`
+    ///   (2026-08, when the toolbar became reorderable).
     static func migrateLegacySettings() {
+        migrateNotificationPosition()
+        migrateMarkupToolbarLayout()
+    }
+
+    private static func migrateNotificationPosition() {
         let defaults = UserDefaults.standard
         guard let legacy = defaults.string(forKey: Keys.legacyNotificationPosition) else { return }
         for key in [Keys.previewPosition, Keys.toastPosition] where defaults.string(forKey: key) == nil {
             defaults.set(legacy, forKey: key)
         }
         defaults.removeObject(forKey: Keys.legacyNotificationPosition)
+    }
+
+    /// Only runs for someone who actually changed a button's visibility —
+    /// an untouched install has nothing to carry forward and should follow
+    /// the default layout, including any items added to it later.
+    private static func migrateMarkupToolbarLayout() {
+        let defaults = UserDefaults.standard
+        guard defaults.data(forKey: Keys.markupToolbarLayout) == nil else { return }
+
+        let legacyKeys = [
+            Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,
+            Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
+            Keys.markupShowsUploadButton, Keys.markupShowsRedactionButton,
+            Keys.markupToolbarLayout,
+        ]
+        guard legacyKeys.contains(where: { defaults.object(forKey: $0) != nil }) else { return }
+
+        let layout = MarkupToolbarLayout.migrating(
+            showsCopy: bool(forKey: Keys.markupShowsCopyButton, default: Defaults.markupShowsCopyButton),
+            showsSave: bool(forKey: Keys.markupShowsSaveButton, default: Defaults.markupShowsSaveButton),
+            showsSaveAs: bool(forKey: Keys.markupShowsSaveAsButton, default: Defaults.markupShowsSaveAsButton),
+            showsDragOut: bool(forKey: Keys.markupShowsDragButton, default: Defaults.markupShowsDragButton),
+            showsUpload: bool(forKey: Keys.markupShowsUploadButton, default: Defaults.markupShowsUploadButton),
+            showsRedact: bool(forKey: Keys.markupShowsRedactionButton, default: Defaults.markupShowsRedactionButton)
+        )
+        defaults.set(layout.encoded(), forKey: Keys.markupToolbarLayout)
+        for key in legacyKeys {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     /// Slider maximum for the preview duration; at this value the preview
@@ -367,6 +404,16 @@ nonisolated enum AppSettings {
     static var windowBackgroundColor: NSColor {
         let hex = UserDefaults.standard.string(forKey: Keys.windowBackgroundColor) ?? ""
         return NSColor(hexString: hex) ?? NSColor(hexString: Defaults.windowBackgroundColor)!
+    }
+
+    /// What the markup toolbar contains, in order. Absent means never
+    /// customised, which is the default arrangement — not an empty toolbar,
+    /// which is a legitimate (if odd) choice someone can make.
+    static var markupToolbarLayout: MarkupToolbarLayout {
+        guard let data = UserDefaults.standard.data(forKey: Keys.markupToolbarLayout) else {
+            return .default
+        }
+        return MarkupToolbarLayout.decode(data) ?? .default
     }
 
     /// Initial markup color for new annotation windows.
@@ -575,6 +622,7 @@ nonisolated enum AppSettings {
             Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,
             Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
             Keys.markupShowsUploadButton, Keys.markupShowsRedactionButton,
+            Keys.markupToolbarLayout,
             Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
             Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
             Keys.checkUploadsForSensitiveContent,

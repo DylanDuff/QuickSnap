@@ -81,12 +81,12 @@ Three, all settings-driven:
   Deliberately hidden while automatic uploading is on (the capture has
   already been sent, so the button could only duplicate it), which is why
   the toggle is disabled in that state.
-- **Markup toolbar button** — `AppSettings.Keys.markupShowsUploadButton`,
+- **Markup toolbar button** — placed via the toolbar layout (`MarkupToolbarItem.upload`),
   uploading the *flattened* annotated image as `"<original> Annotated.png"`.
 
 Both button toggles live on the Uploading page rather than Markup, so all
 upload configuration is in one place. The markup upload button is
-deliberately outside `MarkupSettingsView`'s "at least one output button
+deliberately not subject to the old "at least one output button
 stays on" invariant — that rule guarantees a *local* export path always
 remains, and a button that depends on a reachable server can't satisfy it.
 

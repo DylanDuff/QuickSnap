@@ -49,8 +49,8 @@ stack a second review on the first.
 
 ## Reaching it without an upload
 
-The markup toolbar has a redact button (`asterisk.circle`, next to crop, on
-by default and switchable in Settings → Markup → Tools). It runs the same
+The markup toolbar has a redact button (`asterisk.circle`, in the default
+layout next to crop, and movable or removable in Settings → Markup). It runs the same
 check on the capture you're looking at and arms the same review — with
 *Redact All* and *Keep* instead of the upload variants, since there's no
 upload waiting.
