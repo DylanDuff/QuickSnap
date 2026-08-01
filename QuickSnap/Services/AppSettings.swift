@@ -112,6 +112,7 @@ nonisolated enum AppSettings {
         static let markupShowsSaveAsButton = "markupShowsSaveAsButton"
         static let markupShowsDragButton = "markupShowsDragButton"
         static let markupShowsUploadButton = "markupShowsUploadButton"
+        static let markupShowsRedactionButton = "markupShowsRedactionButton"
         // Uploading — provider-neutral settings…
         static let uploadingEnabled = "uploadingEnabled"
         static let uploadProvider = "uploadProvider"
@@ -187,6 +188,7 @@ nonisolated enum AppSettings {
         static let markupShowsSaveAsButton = false
         static let markupShowsDragButton = false
         static let markupShowsUploadButton = false
+        static let markupShowsRedactionButton = true
         static let uploadingEnabled = false
         static let uploadProvider = UploadProvider.immich
         static let uploadAfterCapture = false
@@ -572,7 +574,7 @@ nonisolated enum AppSettings {
             Keys.markupDefaultColor, Keys.markupDefaultStrokeStep,
             Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,
             Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
-            Keys.markupShowsUploadButton,
+            Keys.markupShowsUploadButton, Keys.markupShowsRedactionButton,
             Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
             Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
             Keys.checkUploadsForSensitiveContent,

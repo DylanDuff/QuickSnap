@@ -77,6 +77,11 @@ final class MarkupCanvasController: nonisolated ObservableObject {
         }
     }
 
+    /// True while a scan is running, so the toolbar can show it working —
+    /// Vision takes a second or two on a full-screen capture, and a button
+    /// that appears to do nothing gets pressed again.
+    @Published var isScanningForSensitiveContent = false
+
     /// Set once findings have been put in front of the user in this window.
     ///
     /// It's what stops the gate from looping: after the review, an upload

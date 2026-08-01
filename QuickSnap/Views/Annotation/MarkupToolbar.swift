@@ -21,6 +21,7 @@ struct MarkupToolbar: View {
     var onSave: () -> Void
     var onSaveAs: () -> Void
     var onUpload: () -> Void
+    var onScanForSensitiveContent: () -> Void
     var dragFile: AnnotatedFileDrag
 
     // Which output buttons show — configured in Settings → Markup; live
@@ -36,6 +37,10 @@ struct MarkupToolbar: View {
     private var showsDragButton = AppSettings.Defaults.markupShowsDragButton
     @AppStorage(AppSettings.Keys.markupShowsUploadButton)
     private var showsUploadButton = AppSettings.Defaults.markupShowsUploadButton
+    /// Not an output button — it acts on the canvas, like crop — so it sits
+    /// with those and has no part in the "keep at least one export" rule.
+    @AppStorage(AppSettings.Keys.markupShowsRedactionButton)
+    private var showsRedactionButton = AppSettings.Defaults.markupShowsRedactionButton
     /// Upload is only offered when a provider is actually switched on — the
     /// button's own toggle isn't enough, or it would appear and then fail.
     @AppStorage(AppSettings.Keys.uploadingEnabled)
@@ -102,6 +107,9 @@ struct MarkupToolbar: View {
             divider
             insertButton
             cropButton
+            if showsRedactionButton {
+                redactionButton
+            }
             divider
             stylePickers
             if showsCopyButton || showsSaveButton || showsSaveAsButton || showsDragButton || showsUpload {
@@ -120,6 +128,26 @@ struct MarkupToolbar: View {
             }
         }
         .help("Crop — drag out the area to keep, Return to apply")
+    }
+
+    /// Scans the capture for credentials and arms the redaction review. The
+    /// same review the upload gate opens (`docs/redaction.md`) — this is how
+    /// you reach it deliberately, rather than only when an upload trips it.
+    @ViewBuilder
+    private var redactionButton: some View {
+        if controller.isScanningForSensitiveContent {
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 28, height: 28)
+                .help("Checking for sensitive text…")
+        } else {
+            ToolbarIconButton(
+                systemImage: "asterisk.circle",
+                isActive: !controller.pendingRedactions.isEmpty,
+                action: onScanForSensitiveContent
+            )
+            .help("Check for keys, tokens and other sensitive text")
+        }
     }
 
     /// Shared with `MarkupSettingsView`, which offers the same palette for

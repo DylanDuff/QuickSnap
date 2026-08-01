@@ -151,6 +151,10 @@ final class AnnotationCoordinator: NSObject {
                     }
                 )
             },
+            onScanForSensitiveContent: { [weak self, weak window, weak canvas] in
+                guard let self, let canvas else { return }
+                self.scanForSensitiveContent(in: canvas, attachedTo: window)
+            },
             // Unlike its neighbours this closure is `@Sendable` and runs off
             // the main actor, so it can't read the `CaptureFile` box — it
             // takes the URL as it stands now. The only consequence of a
@@ -246,6 +250,42 @@ final class AnnotationCoordinator: NSObject {
             frame.origin.x = min(frame.origin.x, screen.visibleFrame.maxX - frame.width)
         }
         window.setFrame(frame, display: true, animate: true)
+    }
+
+    /// Runs the credential check on demand and arms the review.
+    ///
+    /// The same review an upload trips (`docs/redaction.md`), reachable
+    /// deliberately — you don't have to have uploading switched on, or be
+    /// uploading at all, to black something out before sharing a screenshot
+    /// some other way.
+    ///
+    /// The scan itself lives here rather than on `MarkupCanvasController`
+    /// because it's the coordinator's job to call Services; the canvas only
+    /// holds what to draw. It reads the **base image**, not a flattened
+    /// export — findings are in image pixel coordinates, which is what
+    /// redaction paints into.
+    private func scanForSensitiveContent(in canvas: MarkupCanvasController, attachedTo window: NSWindow?) {
+        guard !canvas.isScanningForSensitiveContent else { return }
+        canvas.isScanningForSensitiveContent = true
+
+        Task {
+            let matches = await SensitiveContentDetector.detect(in: canvas.baseImage)
+            canvas.isScanningForSensitiveContent = false
+
+            guard !matches.isEmpty else {
+                // A button that can silently do nothing gets pressed again,
+                // and then distrusted — so it always answers.
+                if let screen = window?.screen ?? NSScreen.main {
+                    toastController.show(
+                        message: "Nothing sensitive found",
+                        systemImage: "checkmark.shield",
+                        on: screen
+                    )
+                }
+                return
+            }
+            canvas.pendingRedactions = matches
+        }
     }
 
     /// One-click Save: writes the flattened image straight into the

@@ -28,6 +28,9 @@ struct MarkupSettingsView: View {
     @AppStorage(AppSettings.Keys.markupShowsDragButton)
     private var showsDragButton = AppSettings.Defaults.markupShowsDragButton
 
+    @AppStorage(AppSettings.Keys.markupShowsRedactionButton)
+    private var showsRedactionButton = AppSettings.Defaults.markupShowsRedactionButton
+
     var body: some View {
         Form {
             Section("Defaults") {
@@ -72,6 +75,14 @@ struct MarkupSettingsView: View {
                     .disabled(isOnlyEnabledOption(showsDragButton))
 
                 Text("Choose which output buttons the markup toolbar shows. At least one stays on, so an annotated screenshot can always leave the editor. Saved copies never overwrite the original.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Tools") {
+                Toggle("Check for sensitive text", isOn: $showsRedactionButton)
+
+                Text("Adds a button that reads the screenshot on this Mac and highlights anything that looks like a key, token or card number, so you can black it out. The same check runs automatically before an upload, if uploading is switched on.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

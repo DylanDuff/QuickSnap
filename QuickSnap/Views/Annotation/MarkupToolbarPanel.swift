@@ -71,6 +71,7 @@ final class MarkupToolbarPanel: NSPanel {
         onSave: @escaping (CGImage) -> Void,
         onSaveAs: @escaping (CGImage) -> Void,
         onUpload: @escaping (CGImage) -> Void,
+        onScanForSensitiveContent: @escaping () -> Void,
         onExportDragFile: @escaping @Sendable (CGImage) throws -> URL
     ) {
         super.init(
@@ -99,6 +100,7 @@ final class MarkupToolbarPanel: NSPanel {
             onSave: onSave,
             onSaveAs: onSaveAs,
             onUpload: onUpload,
+            onScanForSensitiveContent: onScanForSensitiveContent,
             onExportDragFile: onExportDragFile,
             onSizeChange: { [weak self] size in self?.pillSizeChanged(size) }
         ))
@@ -150,6 +152,9 @@ private struct MarkupToolbarContainer: View {
     let onSave: (CGImage) -> Void
     let onSaveAs: (CGImage) -> Void
     let onUpload: (CGImage) -> Void
+    /// Unlike its neighbours this one exports nothing — the scan reads the
+    /// canvas's own base image, so it takes no flattened copy.
+    let onScanForSensitiveContent: () -> Void
     /// Writes a flattened export to a drag-suitable temporary file —
     /// provided by `AnnotationCoordinator` (it owns naming and file I/O).
     let onExportDragFile: @Sendable (CGImage) throws -> URL
@@ -162,6 +167,7 @@ private struct MarkupToolbarContainer: View {
             onSave: { exportFlattened(then: onSave) },
             onSaveAs: { exportFlattened(then: onSaveAs) },
             onUpload: { exportFlattened(then: onUpload) },
+            onScanForSensitiveContent: onScanForSensitiveContent,
             dragFile: dragFile
         )
         .fixedSize()

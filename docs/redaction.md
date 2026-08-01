@@ -47,6 +47,26 @@ Once a window has shown a review, uploads from it skip the check
 something flagged would hold the very next upload for the same reason and
 stack a second review on the first.
 
+## Reaching it without an upload
+
+The markup toolbar has a redact button (`asterisk.circle`, next to crop, on
+by default and switchable in Settings → Markup → Tools). It runs the same
+check on the capture you're looking at and arms the same review — with
+*Redact All* and *Keep* instead of the upload variants, since there's no
+upload waiting.
+
+That matters because uploading is off for most people: a screenshot shared
+by drag-out, clipboard or Save As deserves the same one-click blackout, and
+tying the whole feature to a provider being configured would have hidden it
+from everyone who needs it most. The button always answers — "Nothing
+sensitive found" is a toast rather than silence, or the button gets pressed
+twice and then distrusted.
+
+The scan lives in `AnnotationCoordinator`, not the canvas controller:
+deciding when to run a Service is a coordinator's job. It reads the **base
+image** rather than a flattened export, because findings are in image pixel
+coordinates and that's what redaction paints into.
+
 ## What counts as sensitive
 
 Regex over Vision's OCR. **The floor is the feature**: it needs no model, no
