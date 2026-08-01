@@ -22,6 +22,7 @@ setting sees no change.
 | `{width}` `{height}` | Pixel dimensions of the final image |
 | `{counter}` | Persisted, increments per capture |
 | `{random}` | Six random characters |
+| `{describe}` | What the capture shows, as a slug — see below |
 
 Design decisions worth not re-litigating:
 
@@ -45,6 +46,55 @@ Design decisions worth not re-litigating:
 session, so `NSWorkspace.frontmostApplication` is what they were actually
 looking at. Don't reintroduce an `NSApp.activate` on the capture path (see
 CLAUDE.md) or this silently starts naming everything "QuickSnap".
+
+## `{describe}` — naming a capture for what it shows
+
+`QuickSnap 2026-08-01 login-form-validation-error.png`. Switched on from
+Settings → Intelligence (which appends the token to the template — the
+template stays the single source of truth), and dependent on the
+`AIProvider` seam; see `docs/intelligence.md`.
+
+**The save never waits on a model.** A capture that isn't on disk until a
+model answers is a capture that can be lost, and the round trip is seconds.
+So the file is written immediately with the token rendered empty, and
+renamed in place once the description arrives —
+`CaptureCoordinator.describeAndRename`.
+
+Three things make that work:
+
+- **`ResolvedFilename`** keeps a name as its *inputs* (template, context,
+  counter, random suffix) rather than as a finished string, so the second
+  render reproduces the first exactly. Both `{counter}` and `{random}` would
+  otherwise drift — `nextFilenameCounter()` advances on every call, and the
+  random suffix used to be drawn inside `render`. That last one was a real
+  bug caught by the standalone test below: the rename moved the file to a
+  name sharing nothing with the one it was written under. `render` now takes
+  the suffix as a parameter and is fully deterministic.
+- **The rename is a move within the folder** (`ScreenshotSaver.rename`), so
+  the `FileTag` xattr rides along and retention still recognises the file.
+  Verified, not assumed: `FileManager.moveItem` preserves extended
+  attributes within a volume. **Don't reimplement this as copy-then-delete**
+  — that drops the tag and orphans the file from cleanup.
+- **`CaptureFile`** is a reference box holding where the capture currently
+  is. The preview panel is on screen and an annotation window may already be
+  open when the rename lands, both holding the original URL; they observe
+  the box instead, so Reveal in Finder, drag-out and the window title follow
+  the file. The one exception is the annotation toolbar's drag-out *name*,
+  whose closure is `@Sendable` and off-main — it keeps the pre-rename stem,
+  which is cosmetic (nothing reads the original file).
+
+Every failure falls back to the name the file already has, which is a
+complete name in its own right: intelligence off, provider unavailable,
+model returns nothing, or a slug that sanitizes away to nothing (an
+all-emoji description). The rename is skipped when the re-rendered name
+equals the original.
+
+**Slug hygiene is a whitelist, not a blacklist.** The description is model
+output going into a filesystem call, so `FilenameTemplate.slug` keeps only
+`a`–`z` and `0`–`9`, turns every other character into a separator, folds
+accents, and truncates on a word boundary at 48 characters. Path
+separators, leading dots and Finder-hostile characters can't get through by
+construction.
 
 ### Verifying
 

@@ -32,8 +32,16 @@ nonisolated enum ScreenshotSaver {
     /// Falls back to the default template when unset — so the out-of-box
     /// naming is still `QuickSnap yyyy-MM-dd at HH.mm.ss`.
     static func name(for context: FilenameContext = FilenameContext()) -> String {
-        FilenameTemplate.render(
-            AppSettings.filenameTemplate,
+        resolvedName(for: context).value
+    }
+
+    /// The same name, but keeping the inputs it was rendered from — so a
+    /// `{describe}` rename can re-render the template later without every
+    /// other token drifting. Advances the `{counter}` exactly once, like
+    /// `name(for:)` does.
+    static func resolvedName(for context: FilenameContext = FilenameContext()) -> ResolvedFilename {
+        ResolvedFilename(
+            template: AppSettings.filenameTemplate,
             context: context,
             counter: AppSettings.nextFilenameCounter()
         )
@@ -120,16 +128,44 @@ nonisolated enum ScreenshotSaver {
     /// choice if that name was taken).
     @discardableResult
     static func save(_ image: CGImage, context: FilenameContext = FilenameContext()) throws -> URL {
+        try save(image, name: resolvedName(for: context))
+    }
+
+    /// Saves under an already-resolved name, for the capture path — which
+    /// keeps the name around so a `{describe}` rename can re-render it.
+    @discardableResult
+    static func save(_ image: CGImage, name: ResolvedFilename) throws -> URL {
         try prepareSaveDirectory()
 
         let format = effectiveFormat(for: image, requested: AppSettings.imageFormat)
         let url = uniqueURL(
             in: saveDirectory,
-            baseName: name(for: context),
+            baseName: name.value,
             fileExtension: format.fileExtension
         )
         try write(image, to: url, format: format)
         return url
+    }
+
+    /// Renames a saved capture in place, keeping its extension and taking a
+    /// free name on collision. Returns the URL the file now lives at — the
+    /// original when the name didn't change.
+    ///
+    /// The `FileTag` xattr rides along with the move (verified: `mv` within
+    /// a volume preserves extended attributes), so retention still
+    /// recognises the file afterwards. Don't reimplement this as
+    /// copy-then-delete, which would drop the tag and orphan the file from
+    /// cleanup.
+    @discardableResult
+    static func rename(_ url: URL, toBaseName baseName: String) throws -> URL {
+        let target = uniqueURL(
+            in: url.deletingLastPathComponent(),
+            baseName: baseName,
+            fileExtension: url.pathExtension
+        )
+        guard target != url else { return url }
+        try FileManager.default.moveItem(at: url, to: target)
+        return target
     }
 
     /// Writes `image` to a specific URL, inferring the format from the URL's

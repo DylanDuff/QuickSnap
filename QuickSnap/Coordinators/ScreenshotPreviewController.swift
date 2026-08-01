@@ -36,9 +36,11 @@ final class ScreenshotPreviewController {
     private static let maxLongSide: CGFloat = 480
     private static let margin: CGFloat = 16
 
-    /// `fileURL` is nil when the "Save" after-capture action is turned off —
-    /// the preview then hides Reveal in Finder, and drag-out is backed by a
-    /// temporary PNG instead of the saved file.
+    /// `file` carries a nil URL when the "Save" after-capture action is
+    /// turned off — the preview then hides Reveal in Finder, and drag-out is
+    /// backed by a temporary PNG instead of the saved file. It's a reference
+    /// rather than a URL because a `{describe}` rename can land while the
+    /// panel is still up (see `CaptureFile`).
     ///
     /// `onUpload` is nil when Immich uploading isn't available for this
     /// capture (not configured, button switched off, or it already uploaded
@@ -52,20 +54,22 @@ final class ScreenshotPreviewController {
     /// pointing at, so dynamic falls back to the bottom corner).
     func show(
         image: CGImage,
-        fileURL: URL?,
+        file: CaptureFile,
         on screen: NSScreen,
         scale: CGFloat,
         anchor: CGRect?,
         onUpload: ((CGImage) -> Void)?,
-        onEdit: @escaping (CGImage, URL?) -> Void
+        onEdit: @escaping (CGImage, CaptureFile) -> Void
     ) {
         dismissWorkItem?.cancel()
         panel?.close()
         hasInteracted = false
 
+        let fileURL = file.url
         // Written up front rather than lazily at drag time so a failure can
         // simply hide the drag handle instead of surfacing mid-drag.
-        let dragFileURL = fileURL ?? (try? ScreenshotSaver.writeTemporaryImage(image))
+        let temporaryDragFileURL = fileURL == nil ? try? ScreenshotSaver.writeTemporaryImage(image) : nil
+        let dragFileURL = fileURL ?? temporaryDragFileURL
 
         let fullPointSize = CGSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
         // Floor the panel at whatever the hover action bar actually needs
@@ -118,12 +122,13 @@ final class ScreenshotPreviewController {
         let newPanel = ScreenshotPreviewPanel(contentRect: startFrame)
         newPanel.contentView = NSHostingView(rootView: ScreenshotPreviewView(
             image: nsImage,
-            showsRevealInFinder: fileURL != nil,
-            dragFileURL: dragFileURL,
+            file: file,
+            temporaryDragFileURL: temporaryDragFileURL,
             onOpenInFinder: { [weak self] in
                 self?.cancelAutoDismiss()
-                if let fileURL {
-                    NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+                // Read now, not at show time: a rename may have moved it.
+                if let currentURL = file.url {
+                    NSWorkspace.shared.activateFileViewerSelecting([currentURL])
                 }
             },
             onCopy: { [weak self] in
@@ -132,7 +137,7 @@ final class ScreenshotPreviewController {
             },
             onEdit: { [weak self] in
                 self?.cancelAutoDismiss()
-                onEdit(image, fileURL)
+                onEdit(image, file)
                 self?.dismiss()
             },
             onUpload: onUpload.map { upload in

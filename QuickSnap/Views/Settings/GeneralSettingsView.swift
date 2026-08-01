@@ -345,7 +345,8 @@ struct GeneralSettingsView: View {
                 appName: "Safari",
                 windowTitle: "Apple",
                 pixelWidth: 2880,
-                pixelHeight: 1800
+                pixelHeight: 1800,
+                description: "login form validation error"
             ),
             counter: 42
         )

@@ -1,14 +1,15 @@
 # Intelligence
 
-Two separate things live under this heading, and it's worth keeping them
+Three separate things live under this heading, and it's worth keeping them
 apart:
 
 - **Copy for AI** — a capture action that hands a screenshot *and its
   context* to whatever AI tool the user already uses. No model runs in
   QuickSnap at all.
 - **The `AIProvider` seam** — the shared way features ask a model about a
-  capture, with an on-device conformer. Shipped ahead of its first consumer,
-  deliberately.
+  capture, with an on-device conformer.
+- **`CaptureAnalyzer`** — the one pass that reads a capture (OCR plus a
+  description), shared by everything downstream of a save.
 
 ---
 
@@ -143,18 +144,56 @@ slug — turning it into a filename is `FilenameTemplate`'s business.
   to its non-AI behaviour when the provider is unavailable. That's the whole
   point of `availability` being a first-class part of the protocol.
 
-### Why there's no settings UI yet
+### Settings
 
-`AppSettings.aiEnabled` exists and defaults to **off** — nothing runs a
-model behind the user's back, even on-device. But the seam ships with no
-consumers, and a master toggle that controls nothing is dead UI. The
-Intelligence settings section lands with the first feature that needs it.
+`AppSettings.aiEnabled` defaults to **off** — nothing runs a model behind
+the user's back, even on-device. The seam originally shipped with no
+consumers and therefore no UI (a master toggle that controls nothing is dead
+UI); `{describe}` is the first consumer, so Settings → Intelligence now
+holds the switch, the live availability status, and the features built on
+it.
 
-Likewise there's no provider picker: there's one conformer. A second
+There's still no provider picker: there's one conformer. A second
 provider adds an enum, a picker, a Keychain-backed key
 (`KeychainStore`, never UserDefaults) and a branch in
 `AppSettings.aiProvider` — and nothing upstream changes, which is the
 property the seam exists to guarantee.
+
+---
+
+## `CaptureAnalyzer`
+
+`Services/CaptureAnalyzer.swift` — one pass over a capture returning its
+on-screen text and a prose description of what it shows.
+
+It exists because the expensive half is shared. The on-device model takes no
+image input, so a description *is* OCR plus the window it came from; running
+Vision once for the filename and again for anything else would double the
+cost of every capture for the same answer. `describes: false` skips the
+model and returns OCR alone.
+
+**Nothing here throws.** Both halves are enrichment — a capture whose text
+can't be read, or whose description the model declines to produce, is still
+a perfectly good screenshot. Callers fall back to their non-AI behaviour on
+a nil description; that's the "degrade, never error at the user" rule above,
+made structural.
+
+---
+
+## `{describe}` filenames
+
+The seam's first consumer: `QuickSnap 2026-08-01 login-form-validation-error.png`.
+Switched on in Settings → Intelligence, which appends the token to the
+filename template rather than storing a second flag — the template stays the
+single source of truth for naming.
+
+The mechanics (deferred rename, `ResolvedFilename`, `CaptureFile`, xattr
+survival, slug hygiene) are naming concerns and live in
+`docs/files-and-retention.md`. What belongs here is the shape of the
+dependency: **the capture is complete before the model is consulted**. A
+description is a nicety layered on top of a file that is already saved,
+copied and previewed, and every failure path leaves that file exactly as it
+was.
 
 ### Verifying
 

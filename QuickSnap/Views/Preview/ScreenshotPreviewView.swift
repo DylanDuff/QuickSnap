@@ -25,13 +25,15 @@ struct ScreenshotPreviewView: View {
     }
 
     let image: NSImage
-    /// False when the capture was never saved to disk — there's no file to
-    /// reveal, so the Finder button is hidden.
-    let showsRevealInFinder: Bool
-    /// The file backing drag-out: the saved screenshot, or a temporary PNG
-    /// when the capture was never saved to disk. Nil only if that temporary
-    /// write failed, which hides the drag handle.
-    let dragFileURL: URL?
+    /// Where the saved capture currently is — observed rather than copied,
+    /// so a `{describe}` rename landing while the panel is up moves the
+    /// Finder button and the drag payload with it. Nil url = the capture was
+    /// never saved to disk, which hides the Finder button.
+    @ObservedObject var file: CaptureFile
+    /// Drag-out fallback for a capture with no file of its own: a temporary
+    /// PNG written at show time. Nil only if that write failed, which hides
+    /// the drag handle.
+    let temporaryDragFileURL: URL?
     let onOpenInFinder: () -> Void
     let onCopy: () -> Void
     let onEdit: () -> Void
@@ -98,6 +100,11 @@ struct ScreenshotPreviewView: View {
             : .opacity.combined(with: .scale(scale: 0.9, anchor: anchor))
     }
 
+    /// The saved capture if there is one, else the temporary PNG.
+    private var dragFileURL: URL? {
+        file.url ?? temporaryDragFileURL
+    }
+
     private var actionBar: some View {
         HStack(spacing: ActionBarMetrics.spacing) {
             if let dragFileURL {
@@ -108,7 +115,7 @@ struct ScreenshotPreviewView: View {
             if let onUpload {
                 PreviewActionButton(systemImage: "arrow.up.circle.fill", action: onUpload)
             }
-            if showsRevealInFinder {
+            if file.url != nil {
                 PreviewActionButton(systemImage: "folder.fill", action: onOpenInFinder)
             }
         }

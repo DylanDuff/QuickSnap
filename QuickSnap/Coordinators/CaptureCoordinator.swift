@@ -470,13 +470,21 @@ final class CaptureCoordinator: ObservableObject {
         anchor: CGRect? = nil
     ) async {
         do {
+            // Resolved before the write so the same template — same counter,
+            // same timestamp — can be re-rendered if a description arrives
+            // for `{describe}` later.
+            let name = ScreenshotSaver.resolvedName(for: context)
             // Detached so a TCC consent prompt (first write to ~/Documents)
             // blocks a background thread, never the main thread.
             let url = AppSettings.savesAfterCapture
                 ? try await Task.detached(priority: .userInitiated) {
-                    try ScreenshotSaver.save(image, context: context)
+                    try ScreenshotSaver.save(image, name: name)
                 }.value
                 : nil
+            let file = CaptureFile(url: url)
+            if url != nil {
+                describeAndRename(image, file: file, name: name)
+            }
             if AppSettings.copiesAfterCapture {
                 ScreenshotSaver.copyToClipboard(image)
             }
@@ -492,20 +500,60 @@ final class CaptureCoordinator: ObservableObject {
                     && !AppSettings.uploadsAfterCapture
                 previewController.show(
                     image: image,
-                    fileURL: url,
+                    file: file,
                     on: screen,
                     scale: screen.backingScaleFactor,
                     anchor: anchor,
                     onUpload: offersUpload
                         ? { [weak self] image in self?.uploadCoordinator.upload(image, on: screen) }
                         : nil,
-                    onEdit: { [weak self] image, fileURL in
-                        self?.annotationCoordinator.openAnnotationWindow(image: image, fileURL: fileURL)
+                    onEdit: { [weak self] image, file in
+                        self?.annotationCoordinator.openAnnotationWindow(image: image, file: file)
                     }
                 )
             }
         } catch {
             presentError(error)
+        }
+    }
+
+    /// Fills in the `{describe}` token *after* the capture is already on
+    /// disk, then renames the file in place.
+    ///
+    /// Deliberately not part of the save: a model round trip takes seconds,
+    /// and a capture that isn't saved until it finishes is a capture that
+    /// can be lost. So the file lands immediately under a name with the
+    /// token empty, and moves once — or not at all, if intelligence is off,
+    /// the provider is unavailable, the model returns nothing, or the slug
+    /// sanitizes away to nothing. Every one of those falls back to the name
+    /// the file already has, which is a complete name in its own right.
+    ///
+    /// The rename is a move within the folder, so the `FileTag` xattr rides
+    /// along and retention still recognises the file. `file` is the box the
+    /// preview panel and any annotation window are holding, so updating it
+    /// is what keeps their Reveal in Finder and drag-out pointing at the
+    /// file that now exists.
+    private func describeAndRename(_ image: CGImage, file: CaptureFile, name: ResolvedFilename) {
+        guard name.awaitsDescription, AppSettings.isAIEnabled else { return }
+
+        Task {
+            let analysis = await CaptureAnalyzer.analyze(
+                image,
+                appName: name.context.appName,
+                windowTitle: name.context.windowTitle
+            )
+            guard let description = analysis.description else { return }
+
+            let described = name.describing(description)
+            guard described.value != name.value, let currentURL = file.url else { return }
+
+            // Detached for the same reason the save is: the save folder can
+            // be TCC-protected, and a move inside it blocks in the syscall.
+            let renamed = await Task.detached(priority: .utility) {
+                try? ScreenshotSaver.rename(currentURL, toBaseName: described.value)
+            }.value
+            guard let renamed else { return }
+            file.moved(to: renamed)
         }
     }
 

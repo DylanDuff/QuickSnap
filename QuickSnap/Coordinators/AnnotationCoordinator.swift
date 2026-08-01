@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -42,6 +43,9 @@ final class AnnotationCoordinator: NSObject {
         /// The tools pill, a child window pinned below `window` — kept here
         /// so window moves/resizes can re-pin it and close can tear it down.
         let toolbar: MarkupToolbarPanel
+        /// Keeps the window title following a `{describe}` rename of the
+        /// capture, which can land after the window is already open.
+        let fileObserver: AnyCancellable?
     }
 
     /// Open annotation windows.
@@ -55,10 +59,13 @@ final class AnnotationCoordinator: NSObject {
     /// toasts, so it isn't shared with `toastController`.
     private let uploadCoordinator = UploadCoordinator()
 
-    /// `fileURL` is nil when the capture was never saved to disk (the "Save"
-    /// after-capture action is off) — the window then falls back to the
-    /// timestamped naming convention for its title and Save As… suggestion.
-    func openAnnotationWindow(image: CGImage, fileURL: URL?) {
+    /// `file` carries a nil URL when the capture was never saved to disk
+    /// (the "Save" after-capture action is off) — the window then falls back
+    /// to the timestamped naming convention for its title and Save As…
+    /// suggestion. It's a reference so a `{describe}` rename landing after
+    /// the window opened moves the title and the suggested name with it
+    /// (see `CaptureFile`).
+    func openAnnotationWindow(image: CGImage, file: CaptureFile) {
         let imageSize = CGSize(width: image.width, height: image.height)
         let aspect = imageSize.width / imageSize.height
         let contentSize = Self.initialContentSize(forImageSize: imageSize)
@@ -69,8 +76,7 @@ final class AnnotationCoordinator: NSObject {
             backing: .buffered,
             defer: false
         )
-        window.title = fileURL?.lastPathComponent
-            ?? "\(ScreenshotSaver.name()).\(AppSettings.imageFormat.fileExtension)"
+        window.title = Self.windowTitle(for: file.url)
         window.titleVisibility = .hidden
         // A titled window is opaque by default, which leaves the SwiftUI
         // `.regularMaterial` backgrounds nothing translucent to blur —
@@ -103,17 +109,22 @@ final class AnnotationCoordinator: NSObject {
             },
             onSaveAs: { [weak self, weak window] flattened in
                 guard let self, let window else { return }
-                self.saveAnnotatedCopy(flattened, originalFileURL: fileURL, attachedTo: window)
+                self.saveAnnotatedCopy(flattened, originalFileURL: file.url, attachedTo: window)
             },
             onUpload: { [weak self, weak window] flattened in
                 guard let self else { return }
                 self.uploadCoordinator.upload(
                     flattened,
-                    filename: "\(Self.annotatedName(forOriginal: fileURL)).\(AppSettings.imageFormat.fileExtension)",
+                    filename: "\(Self.annotatedName(forOriginal: file.url)).\(AppSettings.imageFormat.fileExtension)",
                     on: window?.screen ?? NSScreen.main
                 )
             },
-            onExportDragFile: { flattened in
+            // Unlike its neighbours this closure is `@Sendable` and runs off
+            // the main actor, so it can't read the `CaptureFile` box — it
+            // takes the URL as it stands now. The only consequence of a
+            // later rename is that a dragged-out file keeps the pre-rename
+            // stem in its name; nothing reads the original file.
+            onExportDragFile: { [originalFileURL = file.url] flattened in
                 // Temp dir isn't TCC-protected, so this is safe wherever
                 // the drop machinery calls it.
                 // Always PNG: `AnnotatedFileDrag` declares a static
@@ -121,7 +132,7 @@ final class AnnotationCoordinator: NSObject {
                 // what the drop destination was promised.
                 try ScreenshotSaver.writeTemporaryImage(
                     flattened,
-                    named: Self.annotatedName(forOriginal: fileURL),
+                    named: Self.annotatedName(forOriginal: originalFileURL),
                     format: .png
                 )
             }
@@ -151,7 +162,13 @@ final class AnnotationCoordinator: NSObject {
         hostingView.safeAreaRegions = []
         window.center()
 
-        windows[window] = AnnotationSession(aspect: aspect, toolbar: toolbar)
+        let fileObserver = file.$url
+            .dropFirst()
+            .sink { [weak window] url in
+                window?.title = Self.windowTitle(for: url)
+            }
+
+        windows[window] = AnnotationSession(aspect: aspect, toolbar: toolbar, fileObserver: fileObserver)
         if windows.count == 1 {
             NSApp.setActivationPolicy(.regular)
         }
@@ -225,6 +242,13 @@ final class AnnotationCoordinator: NSObject {
                 alert.beginSheetModal(for: window, completionHandler: nil)
             }
         }
+    }
+
+    /// The file's own name, or the naming template's next name when the
+    /// capture was never written to disk.
+    private static func windowTitle(for fileURL: URL?) -> String {
+        fileURL?.lastPathComponent
+            ?? "\(ScreenshotSaver.name()).\(AppSettings.imageFormat.fileExtension)"
     }
 
     /// "<original> Annotated" — the naming shared by Save As…'s suggestion,

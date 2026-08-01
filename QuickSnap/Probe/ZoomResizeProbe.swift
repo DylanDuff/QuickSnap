@@ -48,7 +48,10 @@ enum ZoomResizeProbe {
         let trusted = AXIsProcessTrustedWithOptions(options)
         log("accessibility trusted: \(trusted)")
 
-        annotationCoordinator.openAnnotationWindow(image: makeSyntheticImage(width: 1600, height: 1000), fileURL: nil)
+        annotationCoordinator.openAnnotationWindow(
+            image: makeSyntheticImage(width: 1600, height: 1000),
+            file: CaptureFile()
+        )
         try? await Task.sleep(for: .seconds(2))
 
         guard let canvas = currentCanvas,
