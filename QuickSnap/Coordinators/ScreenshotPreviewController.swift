@@ -20,9 +20,11 @@ final class ScreenshotPreviewController {
     private var panel: ScreenshotPreviewPanel?
     private var dismissWorkItem: DispatchWorkItem?
     private var hasInteracted = false
-    /// Captured at show time from `AppSettings.notificationPosition` so the
-    /// dismiss animation slides back toward the same edge it entered from.
-    private var slideOutOffset: CGFloat = -16
+    /// How the panel's frame moves while it fades out, captured at show
+    /// time so the dismiss mirrors however the panel entered: back toward
+    /// the screen edge it slid in from, or back down into the point it grew
+    /// out of. Identity under Reduce Motion (a plain cross-fade).
+    private var exitTransform: (CGRect) -> CGRect = { $0 }
 
     /// Long side the panel shows at by default for a typical screenshot.
     private static let maxDimension: CGFloat = 176
@@ -42,11 +44,18 @@ final class ScreenshotPreviewController {
     /// capture (not configured, button switched off, or it already uploaded
     /// automatically), which hides the upload button. Like `onEdit`, the
     /// panel doesn't know what the action does — the caller decides.
+    ///
+    /// `anchor` is the region the capture covered, in AppKit's global
+    /// screen coordinates — the selected area or the captured window's
+    /// frame. It's what `NotificationPosition.dynamic` centers the panel
+    /// on, and is nil for a full-screen capture (which has no region worth
+    /// pointing at, so dynamic falls back to the bottom corner).
     func show(
         image: CGImage,
         fileURL: URL?,
         on screen: NSScreen,
         scale: CGFloat,
+        anchor: CGRect?,
         onUpload: ((CGImage) -> Void)?,
         onEdit: @escaping (CGImage, URL?) -> Void
     ) {
@@ -74,21 +83,37 @@ final class ScreenshotPreviewController {
         let nsImage = NSImage(cgImage: image, size: fullPointSize)
 
         let visible = screen.visibleFrame
-        let position = AppSettings.notificationPosition
-        let finalFrame = CGRect(
-            x: visible.maxX - size.width - Self.margin,
-            y: position == .top
-                ? visible.maxY - size.height - Self.margin
-                : visible.minY + Self.margin,
-            width: size.width,
-            height: size.height
-        )
-        // Reduced motion: cross-fade in place instead of sliding in from the
-        // screen edge (and back out the same way on dismiss).
-        slideOutOffset = Motion.reduceMotion ? 0 : (position == .top ? 16 : -16)
-        let startFrame = Motion.reduceMotion
-            ? finalFrame
-            : finalFrame.offsetBy(dx: 0, dy: position == .top ? 24 : -24)
+        // Dynamic without a region to point at (a full-screen capture) is
+        // the bottom corner, which is also where it lands if the setting is
+        // stale — hence resolving to a concrete edge up front.
+        let position = AppSettings.previewPosition
+        let dynamicAnchor = position == .dynamic ? anchor : nil
+        let edge: NotificationPosition = position == .top ? .top : .bottom
+
+        let finalFrame: CGRect
+        // Reduced motion: cross-fade in place instead of sliding in from
+        // the screen edge / growing out of the capture (and back out the
+        // same way on dismiss).
+        let startFrame: CGRect
+        if let dynamicAnchor {
+            finalFrame = Self.frame(ofSize: size, centeredOn: dynamicAnchor, within: visible)
+            exitTransform = Motion.reduceMotion ? { $0 } : { Self.scaled($0, by: Self.growthScale) }
+            startFrame = Motion.reduceMotion ? finalFrame : Self.scaled(finalFrame, by: Self.growthScale)
+        } else {
+            finalFrame = CGRect(
+                x: visible.maxX - size.width - Self.margin,
+                y: edge == .top
+                    ? visible.maxY - size.height - Self.margin
+                    : visible.minY + Self.margin,
+                width: size.width,
+                height: size.height
+            )
+            let offset: CGFloat = Motion.reduceMotion ? 0 : (edge == .top ? 16 : -16)
+            exitTransform = { $0.offsetBy(dx: 0, dy: offset) }
+            startFrame = Motion.reduceMotion
+                ? finalFrame
+                : finalFrame.offsetBy(dx: 0, dy: edge == .top ? 24 : -24)
+        }
 
         let newPanel = ScreenshotPreviewPanel(contentRect: startFrame)
         newPanel.contentView = NSHostingView(rootView: ScreenshotPreviewView(
@@ -170,13 +195,49 @@ final class ScreenshotPreviewController {
         guard let currentPanel = panel else { return }
         panel = nil
 
-        let endFrame = currentPanel.frame.offsetBy(dx: 0, dy: slideOutOffset)
+        let endFrame = exitTransform(currentPanel.frame)
         NSAnimationContext.animate(Motion.panelSpring) {
             currentPanel.animator().alphaValue = 0
             currentPanel.animator().setFrame(endFrame, display: true)
         } completion: {
             currentPanel.close()
         }
+    }
+
+    /// Centers the panel over the region the capture covered, then pulls it
+    /// back inside the screen's usable area. The clamp matters more than it
+    /// looks: a selection can run right up to a screen edge (or sit on a
+    /// window that straddles two screens), and an uncorrected center would
+    /// put half the thumbnail under the Dock or off the display entirely.
+    private static func frame(ofSize size: CGSize, centeredOn anchor: CGRect, within visible: CGRect) -> CGRect {
+        let origin = CGPoint(
+            x: anchor.midX - size.width / 2,
+            y: anchor.midY - size.height / 2
+        )
+        // `max(…, min)` last so a panel larger than the usable area (only
+        // reachable on a very small display) overflows the far edge rather
+        // than the origin edge.
+        return CGRect(
+            x: max(min(origin.x, visible.maxX - size.width - margin), visible.minX + margin),
+            y: max(min(origin.y, visible.maxY - size.height - margin), visible.minY + margin),
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// How small the panel starts (and ends) relative to its resting size
+    /// when it grows out of the capture instead of sliding in from an edge.
+    private static let growthScale: CGFloat = 0.92
+
+    /// `frame` scaled about its own center — so the panel grows into place
+    /// from, and shrinks back toward, wherever the user last left it.
+    private static func scaled(_ frame: CGRect, by factor: CGFloat) -> CGRect {
+        CGRect(
+            x: frame.midX - frame.width * factor / 2,
+            y: frame.midY - frame.height * factor / 2,
+            width: frame.width * factor,
+            height: frame.height * factor
+        )
     }
 
     private static func thumbnailSize(for imageSize: CGSize, minimum: CGSize) -> CGSize {

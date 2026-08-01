@@ -24,18 +24,46 @@ enum WindowBackgroundStyle: String, CaseIterable {
     }
 }
 
-/// Which screen edge the transient panels (screenshot preview thumbnail,
-/// toast) appear from. Horizontal placement is each panel's own affair
-/// (preview: trailing corner, toast: centered); this only flips the edge
-/// and the slide direction.
+/// Where a transient panel (screenshot preview thumbnail, toast) appears.
+/// The two edge cases only flip the edge and the slide direction —
+/// horizontal placement is each panel's own affair (preview: trailing
+/// corner, toast: centered).
+///
+/// Two cases belong to one panel each, and each picker offers only its own
+/// subset (`previewCases` / `toastCases`) — but a value stored before the
+/// split, or migrated from the old shared key, can still be the other one, so
+/// both `AppSettings` accessors map a foreign case back to `.bottom` and
+/// nothing downstream has to handle it:
+///
+/// - `.dynamic` is preview-only: the thumbnail is centered on whatever the
+///   capture covered (the selected area, the captured window) instead of homing
+///   to a corner, falling back to `.bottom` when there's no such region — a
+///   full-screen capture.
+/// - `.notificationCenter` is toast-only, and isn't a position at all: it hands
+///   confirmations to the system instead of drawing a pill (see
+///   `SystemNotifier`). It rides in this enum because it's the third choice in
+///   the same one-of-three picker; `edgeCases` stays the "is a real screen
+///   edge" subset that the placement maths needs.
 nonisolated enum NotificationPosition: String, CaseIterable {
     case bottom
     case top
+    case dynamic
+    case notificationCenter
+
+    /// The subset that means "a screen edge" — everything a panel with no
+    /// capture region of its own can offer.
+    static let edgeCases: [NotificationPosition] = [.bottom, .top]
+
+    /// What each picker offers.
+    static let previewCases: [NotificationPosition] = edgeCases + [.dynamic]
+    static let toastCases: [NotificationPosition] = edgeCases + [.notificationCenter]
 
     var displayName: String {
         switch self {
         case .bottom: return "Bottom"
         case .top: return "Top"
+        case .dynamic: return "Dynamic"
+        case .notificationCenter: return "Notification"
         }
     }
 }
@@ -60,7 +88,11 @@ nonisolated enum AppSettings {
         static let showPreviewAfterCapture = "showPreviewAfterCapture"
         static let copyAfterCapture = "copyAfterCapture"
         static let saveAfterCapture = "saveAfterCapture"
-        static let notificationPosition = "notificationPosition"
+        static let previewPosition = "previewPosition"
+        static let toastPosition = "toastPosition"
+        /// Superseded by the two keys above; read once by
+        /// `migrateLegacySettings()` and then removed.
+        static let legacyNotificationPosition = "notificationPosition"
         static let previewAutoDismissSeconds = "previewAutoDismissSeconds"
         static let toastAutoDismissSeconds = "toastAutoDismissSeconds"
         static let showTextPreviewInToast = "showTextPreviewInToast"
@@ -114,7 +146,8 @@ nonisolated enum AppSettings {
         static let showPreviewAfterCapture = true
         static let copyAfterCapture = true
         static let saveAfterCapture = true
-        static let notificationPosition = NotificationPosition.bottom
+        static let previewPosition = NotificationPosition.bottom
+        static let toastPosition = NotificationPosition.bottom
         static let previewAutoDismissSeconds = 4.5
         static let toastAutoDismissSeconds = 2.2
         static let showTextPreviewInToast = true
@@ -229,9 +262,41 @@ nonisolated enum AppSettings {
         bool(forKey: Keys.saveAfterCapture, default: Defaults.saveAfterCapture)
     }
 
-    static var notificationPosition: NotificationPosition {
-        let raw = UserDefaults.standard.string(forKey: Keys.notificationPosition) ?? ""
-        return NotificationPosition(rawValue: raw) ?? Defaults.notificationPosition
+    /// The preview is always a panel of ours, so the toast-only
+    /// `.notificationCenter` resolves to the bottom edge.
+    static var previewPosition: NotificationPosition {
+        let stored = position(forKey: Keys.previewPosition, default: Defaults.previewPosition)
+        return stored == .notificationCenter ? .bottom : stored
+    }
+
+    /// The toast has no capture region to center on, so `.dynamic` — which
+    /// its picker doesn't offer, but a migrated legacy value could carry —
+    /// resolves to the bottom edge.
+    static var toastPosition: NotificationPosition {
+        let stored = position(forKey: Keys.toastPosition, default: Defaults.toastPosition)
+        return stored == .dynamic ? .bottom : stored
+    }
+
+    private static func position(forKey key: String, default fallback: NotificationPosition) -> NotificationPosition {
+        let raw = UserDefaults.standard.string(forKey: key) ?? ""
+        return NotificationPosition(rawValue: raw) ?? fallback
+    }
+
+    /// Carries settings forward across key renames, so an existing choice
+    /// isn't silently reset. Called once at launch, before anything reads
+    /// the new keys. A migration can be dropped once no install can still
+    /// be carrying the old key.
+    ///
+    /// - `notificationPosition` → `previewPosition` + `toastPosition`
+    ///   (2026-08, when the preview gained `.dynamic` and the two panels
+    ///   stopped sharing one setting).
+    static func migrateLegacySettings() {
+        let defaults = UserDefaults.standard
+        guard let legacy = defaults.string(forKey: Keys.legacyNotificationPosition) else { return }
+        for key in [Keys.previewPosition, Keys.toastPosition] where defaults.string(forKey: key) == nil {
+            defaults.set(legacy, forKey: key)
+        }
+        defaults.removeObject(forKey: Keys.legacyNotificationPosition)
     }
 
     /// Slider maximum for the preview duration; at this value the preview
@@ -391,7 +456,7 @@ nonisolated enum AppSettings {
             Keys.imageFormat, Keys.imageQuality, Keys.showsCursorInCaptures,
             Keys.retentionDays, Keys.uploadTimeoutSeconds, Keys.uploadRetryCount,
             Keys.showPreviewAfterCapture, Keys.copyAfterCapture, Keys.saveAfterCapture,
-            Keys.notificationPosition, Keys.previewAutoDismissSeconds,
+            Keys.previewPosition, Keys.toastPosition, Keys.previewAutoDismissSeconds,
             Keys.toastAutoDismissSeconds, Keys.showTextPreviewInToast,
             Keys.windowBackgroundStyle, Keys.windowBackgroundPadding, Keys.windowBackgroundColor,
             Keys.markupDefaultColor, Keys.markupDefaultStrokeStep,

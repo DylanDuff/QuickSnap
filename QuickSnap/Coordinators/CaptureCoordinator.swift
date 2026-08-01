@@ -28,6 +28,7 @@ final class CaptureCoordinator: ObservableObject {
     private let uploadCoordinator = UploadCoordinator()
 
     init() {
+        AppSettings.migrateLegacySettings()
         AppSettings.registerDefaultHotkeys()
         hotkeyCoordinator.onAction = { [weak self] action in
             switch action {
@@ -213,7 +214,12 @@ final class CaptureCoordinator: ObservableObject {
                     scale: screen.backingScaleFactor,
                     showsCursor: AppSettings.showsCursorInCaptures
                 )
-                await finish(with: image, screen: screen, context: Self.filenameContext(for: image))
+                await finish(
+                    with: image,
+                    screen: screen,
+                    context: Self.filenameContext(for: image),
+                    anchor: Self.screenFrame(forOverlayRect: rect, on: screen)
+                )
             } catch {
                 presentError(error)
             }
@@ -278,7 +284,11 @@ final class CaptureCoordinator: ObservableObject {
                         for: styled,
                         appName: window.owningApplication?.applicationName,
                         windowTitle: window.title
-                    )
+                    ),
+                    // The window's own frame, not the styled image's — the
+                    // background padding grows the capture symmetrically, so
+                    // the center the preview homes to is the same either way.
+                    anchor: Self.screenFrame(forQuartzRect: window.frame)
                 )
             } catch {
                 presentError(error)
@@ -304,7 +314,43 @@ final class CaptureCoordinator: ObservableObject {
         )
     }
 
-    private func finish(with image: CGImage, screen: NSScreen, context: FilenameContext) async {
+    /// Converts a rect from a selection overlay's flipped, screen-local
+    /// space (top-left origin, points — see `SelectionOverlayView.isFlipped`)
+    /// to AppKit's global screen coordinates.
+    private static func screenFrame(forOverlayRect rect: CGRect, on screen: NSScreen) -> CGRect {
+        CGRect(
+            x: screen.frame.minX + rect.minX,
+            y: screen.frame.maxY - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    /// Converts a global Quartz rect (top-left origin, y growing downward —
+    /// `SCWindow.frame`'s space) to AppKit's global screen coordinates.
+    /// Both spaces share an origin display; they differ only in y direction,
+    /// so the flip is about that display's height. `NSScreen.screens.first`
+    /// is that display: the one AppKit places at (0, 0).
+    private static func screenFrame(forQuartzRect rect: CGRect) -> CGRect {
+        guard let originScreen = NSScreen.screens.first else { return rect }
+        return CGRect(
+            x: rect.minX,
+            y: originScreen.frame.maxY - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    /// `anchor` is the region the capture covered, in AppKit global screen
+    /// coordinates — nil for a full-screen capture, whose region is the
+    /// whole screen and so isn't worth pointing the preview at. Only
+    /// `NotificationPosition.dynamic` uses it.
+    private func finish(
+        with image: CGImage,
+        screen: NSScreen,
+        context: FilenameContext,
+        anchor: CGRect? = nil
+    ) async {
         do {
             // Detached so a TCC consent prompt (first write to ~/Documents)
             // blocks a background thread, never the main thread.
@@ -331,6 +377,7 @@ final class CaptureCoordinator: ObservableObject {
                     fileURL: url,
                     on: screen,
                     scale: screen.backingScaleFactor,
+                    anchor: anchor,
                     onUpload: offersUpload
                         ? { [weak self] image in self?.uploadCoordinator.upload(image, on: screen) }
                         : nil,

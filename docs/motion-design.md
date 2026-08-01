@@ -39,9 +39,17 @@ Fluid Interfaces*, WWDC 2018). The rules, in priority order:
 `NSAnimationContext.animate(_:changes:completion:)` (macOS 15+) accepts a
 SwiftUI `Animation`, so `ScreenshotPreviewController` and `ToastController`
 drive their panels' frame+alpha enter/exit with `Motion.panelSpring` through
-the ordinary `animator()` proxies. Under reduced motion both controllers zero
-the slide offsets (`startFrame = finalFrame`, `slideOutOffset = 0`) so the
-same code path becomes a pure cross-fade.
+the ordinary `animator()` proxies.
+
+Exit mirrors entry: each controller captures the enter geometry at show time
+and replays it in reverse on dismiss — `ToastController` as a `slideOutOffset`,
+`ScreenshotPreviewController` as an `exitTransform` closure, since its motion
+depends on where the panel was placed. From a screen edge it slides back
+toward that edge; under `NotificationPosition.dynamic` it instead grows out of
+(and shrinks back into) the captured region at 92% scale, because there is no
+edge for it to have come from. Under reduced motion both controllers collapse
+their enter geometry to identity (`startFrame = finalFrame`, zero offset /
+identity transform) so the same code path becomes a pure cross-fade.
 
 ## Deliberate non-animations
 

@@ -24,6 +24,10 @@ struct GeneralSettingsView: View {
 
     @State private var launchesAtLogin = false
     @State private var isShowingTokenLegend = false
+    /// Only consulted while Notification Center is the selected presentation.
+    /// Assumed granted until the system says otherwise, so the warning doesn't
+    /// flash on the way to the answer.
+    @State private var hasNotificationAccess = true
 
     @AppStorage(AppSettings.Keys.showPreviewAfterCapture)
     private var showsPreview = AppSettings.Defaults.showPreviewAfterCapture
@@ -34,8 +38,11 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.saveAfterCapture)
     private var savesToDisk = AppSettings.Defaults.saveAfterCapture
 
-    @AppStorage(AppSettings.Keys.notificationPosition)
-    private var notificationPosition = AppSettings.Defaults.notificationPosition
+    @AppStorage(AppSettings.Keys.previewPosition)
+    private var previewPosition = AppSettings.Defaults.previewPosition
+
+    @AppStorage(AppSettings.Keys.toastPosition)
+    private var toastPosition = AppSettings.Defaults.toastPosition
 
     @AppStorage(AppSettings.Keys.previewAutoDismissSeconds)
     private var previewAutoDismissSeconds = AppSettings.Defaults.previewAutoDismissSeconds
@@ -181,26 +188,67 @@ struct GeneralSettingsView: View {
             }
 
             Section("Notifications") {
-                Picker("Appear from", selection: $notificationPosition) {
-                    ForEach(NotificationPosition.allCases, id: \.self) { position in
+                Picker("Screenshot appears", selection: $previewPosition) {
+                    ForEach(NotificationPosition.previewCases, id: \.self) { position in
                         Text(position.displayName)
                     }
                 }
                 .pickerStyle(.segmented)
 
-//                Text("Applies to the screenshot preview and the copied-text confirmation.")
-//                    .font(.footnote)
-//                    .foregroundStyle(.secondary)
+                if previewPosition == .dynamic {
+                    Text("Dynamic centers the preview on what you captured — the selected area, or the captured window. Full-screen captures use the bottom corner.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
 
-                LabeledContent("Screenshot dissapears") {
+                Picker("Confirmations appear", selection: $toastPosition) {
+                    ForEach(NotificationPosition.toastCases, id: \.self) { position in
+                        Text(position.displayName)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: toastPosition) { _, position in
+                    // Ask at the switch that causes it, rather than mid-capture
+                    // behind an overlay.
+                    guard position == .notificationCenter else { return }
+                    SystemNotifier.shared.requestAuthorizationIfNeeded { granted in
+                        hasNotificationAccess = granted
+                    }
+                }
+
+                if toastPosition == .notificationCenter {
+                    Text("Confirmations — copied text, upload results, saved edits — are handed to Notification Center instead of appearing as a pill over your work. In-progress updates are skipped; only the result is posted.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    if !hasNotificationAccess {
+                        HStack(spacing: 10) {
+                            Label("QuickSnap can't post notifications", systemImage: "exclamationmark.triangle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+
+                            Button("Open System Settings") {
+                                SystemNotifier.openSystemSettings()
+                            }
+
+                            Button("Re-check") { refreshNotificationAuthorization() }
+                        }
+                    }
+                }
+
+                LabeledContent("Screenshot disappears") {
                     SliderWithValue(value: $previewAutoDismissSeconds, in: 1...AppSettings.previewAutoDismissNeverThreshold, step: 0.5) {
                         $0 >= AppSettings.previewAutoDismissNeverThreshold ? "Never" : String(format: "%.1f s", $0)
                     }
                 }
 
-                LabeledContent("Text Recognition dissapears") {
-                    SliderWithValue(value: $toastAutoDismissSeconds, in: 1...8, step: 0.5) {
-                        String(format: "%.1f s", $0)
+                // Notification Center owns its own timing, so there's nothing
+                // for this to control under that option.
+                if toastPosition != .notificationCenter {
+                    LabeledContent("Confirmations disappear") {
+                        SliderWithValue(value: $toastAutoDismissSeconds, in: 1...8, step: 0.5) {
+                            String(format: "%.1f s", $0)
+                        }
                     }
                 }
             }
@@ -218,12 +266,18 @@ struct GeneralSettingsView: View {
             }
 
             Section("Window Screenshots") {
-                Picker("Background", selection: $windowBackgroundStyle) {
-                    ForEach(WindowBackgroundStyle.allCases, id: \.self) { style in
-                        Text(style.displayName)
-                    }
+                // Labelled above rather than with `LabeledContent`, whose
+                // trailing column would squeeze the thumbnails.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Background")
+                    ImageOptionPicker(
+                        selection: $windowBackgroundStyle,
+                        options: WindowBackgroundStyle.allCases.map {
+                            .init(value: $0, imageName: Self.thumbnailName(for: $0), label: $0.displayName)
+                        }
+                    )
                 }
-                .pickerStyle(.segmented)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if windowBackgroundStyle != .trimShadow {
                     LabeledContent("Padding") {
@@ -240,7 +294,33 @@ struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .onAppear { launchesAtLogin = LoginItem.isEnabled }
+        .onAppear {
+            launchesAtLogin = LoginItem.isEnabled
+            if toastPosition == .notificationCenter {
+                refreshNotificationAuthorization()
+            }
+        }
+    }
+
+    /// Re-reads the system's answer — it can change in System Settings while
+    /// QuickSnap is running, and the request itself is answered asynchronously.
+    private func refreshNotificationAuthorization() {
+        SystemNotifier.shared.refreshAuthorization { granted in
+            hasNotificationAccess = granted
+        }
+    }
+
+    /// Imageset for each background style, written by
+    /// `Tools/GenerateThumbnails.swift`. Mapped here rather than on
+    /// `WindowBackgroundStyle` itself, which is a Services type and stays
+    /// UI-agnostic.
+    private static func thumbnailName(for style: WindowBackgroundStyle) -> String {
+        switch style {
+        case .wallpaper: "WindowBackgroundWallpaper"
+        case .transparent: "WindowBackgroundTransparent"
+        case .solidColor: "WindowBackgroundSolidColor"
+        case .trimShadow: "WindowBackgroundTrimShadow"
+        }
     }
 
     /// Rendered against representative values rather than the live
