@@ -30,14 +30,22 @@ import UniformTypeIdentifiers
 /// reverts to `.accessory` once the last one closes.
 @MainActor
 final class AnnotationCoordinator: NSObject {
-    /// Open annotation windows, each mapped to its image's aspect ratio
-    /// (width / height) — used by the `NSWindowDelegate` resize hooks to
-    /// keep the window locked to "canvas at that ratio + fixed chrome"
-    /// (`AnnotationView.Layout.chromeSize`), so the mat and toolbar always
-    /// line up with the window edges. The lock holds regardless of the
-    /// canvas's internal zoom/pan (the viewport shape always matches the
-    /// image); a crop re-locks to the new ratio via `canvasAspectChanged`.
-    private var windows: [NSWindow: CGFloat] = [:]
+    /// Per-window state. `aspect` is the image's ratio (width / height),
+    /// used by the `NSWindowDelegate` resize hooks to keep the window locked
+    /// to "canvas at that ratio + fixed chrome"
+    /// (`AnnotationView.Layout.chromeSize`), so the mat always lines up with
+    /// the window edges. The lock holds regardless of the canvas's internal
+    /// zoom/pan (the viewport shape always matches the image); a crop
+    /// re-locks to the new ratio via `canvasAspectChanged`.
+    private struct AnnotationSession {
+        var aspect: CGFloat
+        /// The tools pill, a child window pinned below `window` — kept here
+        /// so window moves/resizes can re-pin it and close can tear it down.
+        let toolbar: MarkupToolbarPanel
+    }
+
+    /// Open annotation windows.
+    private var windows: [NSWindow: AnnotationSession] = [:]
 
     /// Confirmation for the toolbar's one-click Save (which has no other
     /// visible result — the file lands silently in the save folder).
@@ -78,10 +86,16 @@ final class AnnotationCoordinator: NSObject {
         )
         window.delegate = self
 
-        let annotationView = AnnotationView(
+        // Owned here rather than by `AnnotationView`, because the canvas and
+        // the toolbar pill now live in two different windows and share it.
+        let canvas = MarkupCanvasController(
             image: image,
-            markupColor: Color(nsColor: AppSettings.markupDefaultColor),
-            markupStrokeStep: AppSettings.markupDefaultStrokeStep,
+            defaultColor: Color(nsColor: AppSettings.markupDefaultColor),
+            defaultStrokeStep: AppSettings.markupDefaultStrokeStep
+        )
+
+        let toolbar = MarkupToolbarPanel(
+            controller: canvas,
             onCopy: { ScreenshotSaver.copyToClipboard($0) },
             onSave: { [weak self, weak window] flattened in
                 guard let self, let window else { return }
@@ -110,7 +124,11 @@ final class AnnotationCoordinator: NSObject {
                     named: Self.annotatedName(forOriginal: fileURL),
                     format: .png
                 )
-            },
+            }
+        )
+
+        let annotationView = AnnotationView(
+            canvas: canvas,
             onCanvasAspectChanged: { [weak self, weak window] aspect in
                 // Fired from a SwiftUI onChange during view update — defer
                 // the window mutation out of that pass.
@@ -133,21 +151,26 @@ final class AnnotationCoordinator: NSObject {
         hostingView.safeAreaRegions = []
         window.center()
 
-        windows[window] = aspect
+        windows[window] = AnnotationSession(aspect: aspect, toolbar: toolbar)
         if windows.count == 1 {
             NSApp.setActivationPolicy(.regular)
         }
 
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        // As a child window the pill follows the annotation window's moves,
+        // ordering, and miniaturization for free; only resizes need it
+        // re-centered, which `windowDidResize` handles.
+        window.addChildWindow(toolbar, ordered: .above)
+        toolbar.reposition()
     }
 
     /// A crop changed the canvas's aspect ratio: re-lock the window to the
     /// new ratio and resize it in place — canvas width kept where possible,
     /// top-left corner anchored, clamped to the screen's visible area.
     private func canvasAspectChanged(for window: NSWindow, to aspect: CGFloat) {
-        guard let oldAspect = windows[window] else { return }
-        windows[window] = aspect
+        guard let oldAspect = windows[window]?.aspect else { return }
+        windows[window]?.aspect = aspect
         guard abs(oldAspect - aspect) > 0.0001 else { return }
 
         let chrome = AnnotationView.Layout.chromeSize
@@ -237,9 +260,11 @@ final class AnnotationCoordinator: NSObject {
         }
     }
 
-    /// Minimum window content width — must comfortably fit the toolbar
-    /// pill's intrinsic width. The minimum height follows from the aspect
-    /// lock instead of having its own floor.
+    /// Minimum window content width. The pill is its own window now, so this
+    /// no longer has to fit it — but a window much narrower than the pill
+    /// floating beneath it looks wrong, so the floor stays roughly there.
+    /// The minimum height follows from the aspect lock instead of having its
+    /// own floor.
     private static let minContentWidth: CGFloat = 480
 
     /// The one true window content size for a given canvas width: the image
@@ -273,24 +298,54 @@ extension AnnotationCoordinator: NSWindowDelegate {
     /// constrained here instead: whichever axis the user is dragging more
     /// drives, and the other follows from the image's aspect ratio.
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        guard let aspect = windows[sender] else { return frameSize }
+        guard let aspect = windows[sender]?.aspect else { return frameSize }
         let chrome = AnnotationView.Layout.chromeSize
         let proposed = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: frameSize)).size
         let current = sender.contentRect(forFrameRect: sender.frame).size
-        let widthDriven = abs(proposed.width - current.width) >= abs(proposed.height - current.height)
-        let canvasWidth = widthDriven
-            ? proposed.width - chrome.width
-            : (proposed.height - chrome.height) * aspect
+
+        // The canvas width each axis of the proposal asks for on its own.
+        let fromWidth = proposed.width - chrome.width
+        let fromHeight = (proposed.height - chrome.height) * aspect
+        // AppKit proposes a change on the dragged axis only, so an edge drag
+        // leaves the other one untouched (bar rounding).
+        let widthMoved = abs(proposed.width - current.width) > 0.5
+        let heightMoved = abs(proposed.height - current.height) > 0.5
+
+        let canvasWidth: CGFloat
+        if widthMoved && heightMoved {
+            // Corner drag: project the proposal onto the constraint line
+            // (least squares) instead of letting one axis drive outright.
+            // Picking the axis that moved more made corner drags judder —
+            // on a diagonal the winner flips from frame to frame, so width
+            // and height take turns overshooting the mouse. A projection
+            // has no branch to flip, so it stays continuous.
+            let weight = 1 / (aspect * aspect)
+            canvasWidth = (fromWidth + fromHeight * weight) / (1 + weight)
+        } else if heightMoved {
+            canvasWidth = fromHeight
+        } else {
+            // Also the no-op case, where this reproduces the current size.
+            canvasWidth = fromWidth
+        }
+
         let clampedCanvasWidth = max(canvasWidth, Self.minContentWidth - chrome.width)
         let content = Self.conformingContentSize(forCanvasWidth: clampedCanvasWidth, aspect: aspect)
         return sender.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
+    }
+
+    /// Re-pin the tools pill: a resize can change the window's width (so the
+    /// pill is no longer centered) and its origin (which AppKit tracks for
+    /// child windows, but relative to the *old* frame).
+    func windowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        windows[window]?.toolbar.reposition()
     }
 
     /// Zoom (green traffic light / double-click title bar): largest
     /// conforming frame that fits the screen's visible area, kept at the
     /// top of that area and horizontally centered.
     func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
-        guard let aspect = windows[window] else { return defaultFrame }
+        guard let aspect = windows[window]?.aspect else { return defaultFrame }
         let chrome = AnnotationView.Layout.chromeSize
         let maxContent = window.contentRect(forFrameRect: defaultFrame).size
         let fitCanvasWidth = min(maxContent.width - chrome.width, (maxContent.height - chrome.height) * aspect)
@@ -304,6 +359,10 @@ extension AnnotationCoordinator: NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
+        if let toolbar = windows[window]?.toolbar {
+            window.removeChildWindow(toolbar)
+            toolbar.close()
+        }
         windows.removeValue(forKey: window)
         if windows.isEmpty {
             NSApp.setActivationPolicy(.accessory)
