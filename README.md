@@ -6,6 +6,7 @@ Menu bar screenshot utility for macOS, inspired by CleanShot X. Lives in the men
 
 - **Capture modes** — area (drag to select), window (hover to highlight), and full screen, working across multiple displays.
 - **Text recognition** — select an area and the recognized text (Vision OCR) goes straight to the clipboard.
+- **Copy for AI** — one shortcut copies the screenshot *and* its context (the app it came from, when it was taken, and the text QuickSnap can read in it) as a markdown block, so a single paste gives a chat or coding tool the whole picture instead of a bare image.
 - **After capture** — save to disk, copy to the clipboard, and show a floating preview thumbnail; each action individually toggleable.
 - **Preview panel** — a PIP-style floating thumbnail with quick actions: reveal in Finder, copy, edit, or drag the file out into another app.
 - **Annotation editor** — PencilKit-backed markup canvas (via PaperKit) with pen, highlighter, eraser, shapes, arrows, text, crop, color and stroke-width presets. Exports flattened at full resolution via Copy, one-click Save, Save As, or dragging the file straight into another app; the original file is never overwritten. Default color, default stroke size, and which export buttons show are configurable in Settings → Markup.
@@ -21,6 +22,7 @@ Menu bar screenshot utility for macOS, inspired by CleanShot X. Lives in the men
 | Capture window | ⌘⇧8 |
 | Capture full screen | ⌘⇧9 |
 | Recognize text (OCR) | ⌘⇧0 |
+| Copy for AI | ⌘⇧1 |
 
 Screenshots are saved as `QuickSnap yyyy-MM-dd at HH.mm.ss.png` in `~/Documents/QuickSnap` by default. The folder, filename template, and image format are all configurable in Settings.
 
@@ -58,3 +60,4 @@ Architecture notes, layering rules, and the non-obvious platform gotchas are doc
 - [motion-design.md](docs/motion-design.md) — house animation and feedback conventions.
 - [files-and-retention.md](docs/files-and-retention.md) — filename templates, image formats, and how retention safely deletes only QuickSnap's own files.
 - [uploading.md](docs/uploading.md) — the upload provider architecture, the Immich and S3 integrations, how the SigV4 signing is verified, and the ATS setup for LAN servers.
+- [intelligence.md](docs/intelligence.md) — the Copy for AI clipboard hand-off, and the on-device `AIProvider` seam (including what the system model can't do).

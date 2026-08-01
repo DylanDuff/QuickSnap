@@ -96,6 +96,8 @@ nonisolated enum AppSettings {
         static let previewAutoDismissSeconds = "previewAutoDismissSeconds"
         static let toastAutoDismissSeconds = "toastAutoDismissSeconds"
         static let showTextPreviewInToast = "showTextPreviewInToast"
+        static let copyForAIIncludesText = "copyForAIIncludesText"
+        static let aiEnabled = "aiEnabled"
         static let windowBackgroundStyle = "windowBackgroundStyle"
         static let windowBackgroundPadding = "windowBackgroundPadding"
         static let windowBackgroundColor = "windowBackgroundColor"
@@ -151,6 +153,12 @@ nonisolated enum AppSettings {
         static let previewAutoDismissSeconds = 4.5
         static let toastAutoDismissSeconds = 2.2
         static let showTextPreviewInToast = true
+        /// The transcript is most of the point of Copy for AI — an image
+        /// alone is what the ordinary copy action already gives you.
+        static let copyForAIIncludesText = true
+        /// Off until the user asks for it. Nothing runs a model behind their
+        /// back, even an on-device one.
+        static let aiEnabled = false
         static let windowBackgroundStyle = WindowBackgroundStyle.transparent
         /// Points; multiplied by the screen's backing scale at render time.
         static let windowBackgroundPadding = 40.0
@@ -317,6 +325,12 @@ nonisolated enum AppSettings {
         bool(forKey: Keys.showTextPreviewInToast, default: Defaults.showTextPreviewInToast)
     }
 
+    /// Whether Copy for AI includes the capture's recognized text alongside
+    /// the image and its source app.
+    static var copyForAIIncludesText: Bool {
+        bool(forKey: Keys.copyForAIIncludesText, default: Defaults.copyForAIIncludesText)
+    }
+
     static var windowBackgroundStyle: WindowBackgroundStyle {
         let raw = UserDefaults.standard.string(forKey: Keys.windowBackgroundStyle) ?? ""
         return WindowBackgroundStyle(rawValue: raw) ?? Defaults.windowBackgroundStyle
@@ -445,6 +459,26 @@ nonisolated enum AppSettings {
         return min(max(stored ?? Defaults.uploadRetryCount, 0), 5)
     }
 
+    // MARK: - Intelligence
+
+    /// The configured AI provider, or nil when the user hasn't switched
+    /// intelligence features on. Availability is *not* checked here — a
+    /// provider whose model is unavailable still answers `availability`, and
+    /// callers need that distinction to explain themselves.
+    ///
+    /// The single place providers are constructed from settings, same as
+    /// `uploadDestination`. There's one conformer today, so there's no
+    /// provider picker; a second one adds a `Keys.aiProvider` enum and a
+    /// branch here, and nothing upstream changes.
+    static var aiProvider: (any AIProvider)? {
+        guard isAIEnabled else { return nil }
+        return FoundationModelsProvider()
+    }
+
+    static var isAIEnabled: Bool {
+        bool(forKey: Keys.aiEnabled, default: Defaults.aiEnabled)
+    }
+
     // MARK: - Reset
 
     /// Clears every stored setting and both Keychain secrets — the Advanced
@@ -458,6 +492,7 @@ nonisolated enum AppSettings {
             Keys.showPreviewAfterCapture, Keys.copyAfterCapture, Keys.saveAfterCapture,
             Keys.previewPosition, Keys.toastPosition, Keys.previewAutoDismissSeconds,
             Keys.toastAutoDismissSeconds, Keys.showTextPreviewInToast,
+            Keys.copyForAIIncludesText, Keys.aiEnabled,
             Keys.windowBackgroundStyle, Keys.windowBackgroundPadding, Keys.windowBackgroundColor,
             Keys.markupDefaultColor, Keys.markupDefaultStrokeStep,
             Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,

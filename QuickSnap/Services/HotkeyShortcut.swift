@@ -12,6 +12,7 @@ nonisolated enum HotkeyAction: String, CaseIterable {
     case captureWindow
     case captureFullScreen
     case captureText
+    case copyForAI
 
     var displayName: String {
         switch self {
@@ -19,6 +20,7 @@ nonisolated enum HotkeyAction: String, CaseIterable {
         case .captureWindow: return "Capture Window"
         case .captureFullScreen: return "Capture Full Screen"
         case .captureText: return "Capture Text (OCR)"
+        case .copyForAI: return "Copy for AI"
         }
     }
 
@@ -32,6 +34,11 @@ nonisolated enum HotkeyAction: String, CaseIterable {
             return HotkeyShortcut(keyCode: UInt32(kVK_ANSI_9), modifiers: [.command, .shift], keyLabel: "9")
         case .captureText:
             return HotkeyShortcut(keyCode: UInt32(kVK_ANSI_0), modifiers: [.command, .shift], keyLabel: "0")
+        case .copyForAI:
+            // Not ⌘⇧6, the obvious neighbour of the 7/8/9/0 run: macOS
+            // reserves it for capturing the Touch Bar, and a shortcut the
+            // system already owns fails to register with no visible reason.
+            return HotkeyShortcut(keyCode: UInt32(kVK_ANSI_1), modifiers: [.command, .shift], keyLabel: "1")
         }
     }
 }

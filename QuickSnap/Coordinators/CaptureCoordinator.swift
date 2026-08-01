@@ -9,13 +9,24 @@ import ScreenCaptureKit
 
 @MainActor
 final class CaptureCoordinator: ObservableObject {
-    /// What the current overlay session is for. `.area` and
-    /// `.textRecognition` share the drag-to-select overlay; they diverge in
-    /// what happens with the selected rect.
+    /// What the current overlay session is for. Everything except `.window`
+    /// shares the drag-to-select overlay; they diverge in what happens with
+    /// the selected rect.
     private enum SelectionSessionKind {
         case area
         case window
         case textRecognition
+        case copyForAI
+
+        /// Whether the session can end in a file in the user's save folder.
+        /// The two clipboard-only flows never do, so they skip the save
+        /// folder's TCC warm-up entirely.
+        var writesToSaveFolder: Bool {
+            switch self {
+            case .area, .window: return true
+            case .textRecognition, .copyForAI: return false
+            }
+        }
     }
 
     private var overlayWindows: [SelectionOverlayWindow] = []
@@ -36,6 +47,7 @@ final class CaptureCoordinator: ObservableObject {
             case .captureWindow: self?.startWindowCapture()
             case .captureFullScreen: self?.captureFullScreen()
             case .captureText: self?.startTextCapture()
+            case .copyForAI: self?.startCopyForAI()
             }
         }
         hotkeyCoordinator.start()
@@ -53,6 +65,10 @@ final class CaptureCoordinator: ObservableObject {
 
     func startTextCapture() {
         beginSelectionSession(kind: .textRecognition)
+    }
+
+    func startCopyForAI() {
+        beginSelectionSession(kind: .copyForAI)
     }
 
     func captureFullScreen() {
@@ -116,8 +132,7 @@ final class CaptureCoordinator: ObservableObject {
         guard ensurePermission() else { return }
 
         Task {
-            // Text recognition never writes a file — no folder access needed.
-            if kind != .textRecognition, AppSettings.savesAfterCapture {
+            if kind.writesToSaveFolder, AppSettings.savesAfterCapture {
                 await prepareSaveFolderAccess()
             }
             do {
@@ -248,6 +263,62 @@ final class CaptureCoordinator: ObservableObject {
                         : nil
                     toastController.show(message: "Text copied to clipboard", systemImage: "checkmark.circle.fill", detail: preview, on: screen)
                 }
+            } catch {
+                presentError(error)
+            }
+        }
+    }
+
+    /// Copy for AI: capture the selected area and put it on the clipboard as
+    /// a markdown block — image path, source app, timestamp and (optionally)
+    /// the on-screen text — alongside the image itself. One paste then hands
+    /// a chat tool or coding agent the context the user would otherwise
+    /// retype.
+    ///
+    /// Like the OCR flow, the after-screenshot toggles deliberately don't
+    /// apply: the clipboard *is* the output. The image still needs to exist
+    /// somewhere for the markdown to point at, so it goes to a temp file
+    /// rather than the save folder — the user didn't ask to archive this.
+    private func copyContextForAI(_ rect: CGRect, on screen: NSScreen) {
+        Task {
+            do {
+                let content = try await ScreenCaptureManager.shareableContent()
+                guard let display = ScreenCaptureManager.display(for: screen, in: content) else {
+                    throw ScreenCaptureManagerError.displayNotFound
+                }
+                let image = try await ScreenCaptureManager.captureArea(
+                    rect: rect,
+                    display: display,
+                    scale: screen.backingScaleFactor,
+                    showsCursor: AppSettings.showsCursorInCaptures
+                )
+                // Read before awaiting anything else: the frontmost app is
+                // what the user was looking at, and an alert or another app
+                // stealing focus mid-flow would change the answer.
+                let appName = NSWorkspace.shared.frontmostApplication?.localizedName
+
+                let recognizedText = AppSettings.copyForAIIncludesText
+                    ? try? await TextRecognizer.recognizeText(in: image)
+                    : nil
+
+                // Encoding a retina capture is real work; keep it off main.
+                let imageURL = await Task.detached(priority: .userInitiated) {
+                    try? ScreenshotSaver.writeTemporaryImage(image, format: .png)
+                }.value
+
+                let markdown = CaptureContextMarkdown.render(
+                    imageURL: imageURL,
+                    appName: appName,
+                    windowTitle: nil,
+                    recognizedText: recognizedText
+                )
+                ScreenshotSaver.copyToClipboard(image, text: markdown)
+                toastController.show(
+                    message: "Copied for AI",
+                    systemImage: "checkmark.circle.fill",
+                    detail: recognizedText?.isEmpty == false ? "Image and text on the clipboard" : nil,
+                    on: screen
+                )
             } catch {
                 presentError(error)
             }
@@ -405,9 +476,12 @@ extension CaptureCoordinator: SelectionOverlayViewDelegate {
         let kind = sessionKind
         endSelectionSession()
 
-        if kind == .textRecognition {
+        switch kind {
+        case .textRecognition:
             recognizeTextInArea(rect, on: screen)
-        } else {
+        case .copyForAI:
+            copyContextForAI(rect, on: screen)
+        case .area, .window:
             captureSelectedArea(rect, on: screen)
         }
     }

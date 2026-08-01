@@ -53,6 +53,9 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.showTextPreviewInToast)
     private var showsTextPreviewInToast = AppSettings.Defaults.showTextPreviewInToast
 
+    @AppStorage(AppSettings.Keys.copyForAIIncludesText)
+    private var copyForAIIncludesText = AppSettings.Defaults.copyForAIIncludesText
+
     @AppStorage(AppSettings.Keys.windowBackgroundStyle)
     private var windowBackgroundStyle = AppSettings.Defaults.windowBackgroundStyle
 
@@ -263,6 +266,14 @@ struct GeneralSettingsView: View {
 
             Section("Text Recognition") {
                 Toggle("Show text preview in confirmation", isOn: $showsTextPreviewInToast)
+            }
+
+            Section("Copy for AI") {
+                Toggle("Include the text in the image", isOn: $copyForAIIncludesText)
+
+                Text("Copy for AI puts the screenshot on the clipboard together with the app it came from and, optionally, the text QuickSnap can read in it — so one paste gives a chat or coding tool the whole picture.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Window Screenshots") {

@@ -196,4 +196,26 @@ nonisolated enum ScreenshotSaver {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
     }
+
+    /// Puts `image` and `text` on the clipboard as **one item with two
+    /// representations**, so whichever the paste target understands is what
+    /// it gets: a terminal takes the text, a chat window takes the picture.
+    /// Two separate items wouldn't do — most readers only ever look at the
+    /// first one.
+    ///
+    /// Kept apart from `copyToClipboard(_ image:)`, which writes an `NSImage`
+    /// and lets AppKit offer its full set of representations. That's the more
+    /// compatible write for an image alone, but it can't carry the text
+    /// alongside.
+    static func copyToClipboard(_ image: CGImage, text: String) {
+        let item = NSPasteboardItem()
+        item.setString(text, forType: .string)
+        if let png = try? imageData(image, format: .png) {
+            item.setData(png, forType: .png)
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+    }
 }
