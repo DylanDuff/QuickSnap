@@ -166,11 +166,14 @@ property the seam exists to guarantee.
 `Services/CaptureAnalyzer.swift` — one pass over a capture returning its
 on-screen text and a prose description of what it shows.
 
-It exists because the expensive half is shared. The on-device model takes no
-image input, so a description *is* OCR plus the window it came from; running
-Vision once for the filename and again for anything else would double the
-cost of every capture for the same answer. `describes: false` skips the
-model and returns OCR alone.
+It exists because the expensive half is shared. Two features want it —
+`{describe}` filenames and the search index (`docs/search.md`) — and the
+on-device model takes no image input, so a description *is* OCR plus the
+window it came from. Running Vision once per consumer would double the cost
+of every capture for the same answer, which is why
+`CaptureCoordinator.enrichSavedCapture` runs one pass and feeds both.
+`describes: false` skips the model and returns OCR alone — what the index
+wants when intelligence is switched off.
 
 **Nothing here throws.** Both halves are enrichment — a capture whose text
 can't be read, or whose description the model declines to produce, is still

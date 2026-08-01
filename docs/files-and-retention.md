@@ -58,7 +58,9 @@ template stays the single source of truth), and dependent on the
 model answers is a capture that can be lost, and the round trip is seconds.
 So the file is written immediately with the token rendered empty, and
 renamed in place once the description arrives —
-`CaptureCoordinator.describeAndRename`.
+`CaptureCoordinator.enrichSavedCapture`, which is also where the capture is
+handed to the search index (`docs/search.md`), off the same single
+`CaptureAnalyzer` pass.
 
 Three things make that work:
 
@@ -157,6 +159,10 @@ under-deletes rather than over-deletes.**
 
 `countExpired(olderThan:in:)` backs the settings preview so the blast radius
 is visible before anything happens, and the action is confirmation-gated.
+
+`clean` returns the URLs it trashed rather than a count, because the search
+index has to drop those rows — a hit that opens nothing is worse than no hit
+(`docs/search.md`).
 
 Both entry points run off the main thread — enumerating a TCC-protected
 folder can block inside the syscall on first access (see CLAUDE.md).

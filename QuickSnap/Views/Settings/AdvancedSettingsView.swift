@@ -186,9 +186,10 @@ struct AdvancedSettingsView: View {
     private func cleanUpNow() {
         let days = retentionDays
         Task {
-            _ = await Task.detached(priority: .utility) {
+            let removed = await Task.detached(priority: .utility) {
                 SaveFolderCleaner.clean(olderThan: days)
             }.value
+            CaptureIndexer.shared.captureFilesRemoved(removed)
             refreshExpiredCount()
         }
     }

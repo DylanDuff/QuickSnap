@@ -19,11 +19,13 @@ import Foundation
 /// `nonisolated` and always called off the main thread: enumerating a
 /// TCC-protected folder can block on the consent prompt (see CLAUDE.md).
 nonisolated enum SaveFolderCleaner {
-    /// Deletes tagged captures older than `days`, returning how many went.
-    /// `days <= 0` means retention is off and is a no-op.
+    /// Deletes tagged captures older than `days`, returning the files that
+    /// actually went — the caller needs them to drop the matching rows from
+    /// the search index, since a hit that opens nothing is worse than no
+    /// hit. `days <= 0` means retention is off and is a no-op.
     @discardableResult
-    static func clean(olderThan days: Int, in directory: URL = ScreenshotSaver.saveDirectory) -> Int {
-        guard days > 0 else { return 0 }
+    static func clean(olderThan days: Int, in directory: URL = ScreenshotSaver.saveDirectory) -> [URL] {
+        guard days > 0 else { return [] }
 
         let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 60 * 60)
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
@@ -33,10 +35,10 @@ nonisolated enum SaveFolderCleaner {
             includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else {
-            return 0
+            return []
         }
 
-        var deleted = 0
+        var deleted: [URL] = []
         for url in contents {
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true,
@@ -49,7 +51,7 @@ nonisolated enum SaveFolderCleaner {
             }
 
             if (try? FileManager.default.trashItem(at: url, resultingItemURL: nil)) != nil {
-                deleted += 1
+                deleted.append(url)
             }
         }
         return deleted

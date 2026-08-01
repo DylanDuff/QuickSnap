@@ -50,6 +50,12 @@ final class CaptureCoordinator: ObservableObject {
     private let toastController = ToastController()
     private let uploadCoordinator = UploadCoordinator()
     private let mcpCoordinator = MCPCoordinator()
+    private let captureIndexer = CaptureIndexer.shared
+    private lazy var searchController = CaptureSearchController(
+        onEdit: { [weak self] image, file in
+            self?.annotationCoordinator.openAnnotationWindow(image: image, file: file)
+        }
+    )
 
     init() {
         AppSettings.migrateLegacySettings()
@@ -61,13 +67,19 @@ final class CaptureCoordinator: ObservableObject {
             case .captureFullScreen: self?.captureFullScreen()
             case .captureText: self?.startTextCapture()
             case .copyForAI: self?.startCopyForAI()
+            case .searchCaptures: self?.showCaptureSearch()
             }
         }
         hotkeyCoordinator.start()
         mcpCoordinator.host = self
         mcpCoordinator.startIfEnabled()
         ZoomResizeProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
-        runRetentionCleanup()
+        Task {
+            await runRetentionCleanup()
+            // After retention, so the index's launch reconcile doesn't walk
+            // a folder that's about to lose files.
+            captureIndexer.startIfNeeded()
+        }
     }
 
     func startAreaCapture() {
@@ -112,12 +124,14 @@ final class CaptureCoordinator: ObservableObject {
     /// Applies the retention setting once per launch, off the main thread.
     /// Only ever removes files QuickSnap tagged as its own, and moves them
     /// to the Trash rather than deleting outright — see `SaveFolderCleaner`.
-    private func runRetentionCleanup() {
+    private func runRetentionCleanup() async {
         let days = AppSettings.retentionDays
         guard days > 0 else { return }
-        Task.detached(priority: .background) {
+        let removed = await Task.detached(priority: .background) {
             SaveFolderCleaner.clean(olderThan: days)
-        }
+        }.value
+        // A search hit that opens nothing is worse than no hit.
+        captureIndexer.captureFilesRemoved(removed)
     }
 
     // MARK: - Permission
@@ -483,7 +497,7 @@ final class CaptureCoordinator: ObservableObject {
                 : nil
             let file = CaptureFile(url: url)
             if url != nil {
-                describeAndRename(image, file: file, name: name)
+                enrichSavedCapture(image, file: file, name: name)
             }
             if AppSettings.copiesAfterCapture {
                 ScreenshotSaver.copyToClipboard(image)
@@ -517,44 +531,72 @@ final class CaptureCoordinator: ObservableObject {
         }
     }
 
-    /// Fills in the `{describe}` token *after* the capture is already on
-    /// disk, then renames the file in place.
+    /// Everything that happens to a saved capture *after* it's on disk: the
+    /// `{describe}` rename, and the search index.
+    ///
+    /// One method because both want the same expensive thing — Vision's OCR,
+    /// plus the model's description of it — and running `CaptureAnalyzer`
+    /// once per consumer would double the cost of every capture for an
+    /// answer we already have.
     ///
     /// Deliberately not part of the save: a model round trip takes seconds,
     /// and a capture that isn't saved until it finishes is a capture that
     /// can be lost. So the file lands immediately under a name with the
-    /// token empty, and moves once — or not at all, if intelligence is off,
-    /// the provider is unavailable, the model returns nothing, or the slug
-    /// sanitizes away to nothing. Every one of those falls back to the name
-    /// the file already has, which is a complete name in its own right.
+    /// `{describe}` token empty, and moves once — or not at all, if
+    /// intelligence is off, the provider is unavailable, the model returns
+    /// nothing, or the slug sanitizes away to nothing. Every one of those
+    /// falls back to the name the file already has, which is a complete
+    /// name in its own right.
     ///
     /// The rename is a move within the folder, so the `FileTag` xattr rides
     /// along and retention still recognises the file. `file` is the box the
     /// preview panel and any annotation window are holding, so updating it
     /// is what keeps their Reveal in Finder and drag-out pointing at the
     /// file that now exists.
-    private func describeAndRename(_ image: CGImage, file: CaptureFile, name: ResolvedFilename) {
-        guard name.awaitsDescription, AppSettings.isAIEnabled else { return }
+    private func enrichSavedCapture(_ image: CGImage, file: CaptureFile, name: ResolvedFilename) {
+        let describes = name.awaitsDescription && AppSettings.isAIEnabled
+        let indexes = AppSettings.isCaptureIndexingEnabled
+        guard describes || indexes else { return }
 
         Task {
+            // The index wants a caption too when intelligence is on, even if
+            // the filename template never asked for one.
             let analysis = await CaptureAnalyzer.analyze(
                 image,
                 appName: name.context.appName,
-                windowTitle: name.context.windowTitle
+                windowTitle: name.context.windowTitle,
+                describes: describes || (indexes && AppSettings.isAIEnabled)
             )
-            guard let description = analysis.description else { return }
 
-            let described = name.describing(description)
-            guard described.value != name.value, let currentURL = file.url else { return }
+            if describes, let description = analysis.description {
+                await rename(file, to: name.describing(description), from: name)
+            }
 
-            // Detached for the same reason the save is: the save folder can
-            // be TCC-protected, and a move inside it blocks in the syscall.
-            let renamed = await Task.detached(priority: .utility) {
-                try? ScreenshotSaver.rename(currentURL, toBaseName: described.value)
-            }.value
-            guard let renamed else { return }
-            file.moved(to: renamed)
+            // Indexed last, so the row carries the name the file ended up
+            // with rather than one it held for two seconds.
+            if indexes, let url = file.url {
+                captureIndexer.index(url, analysis: analysis, context: name.context)
+            }
         }
+    }
+
+    private func rename(_ file: CaptureFile, to described: ResolvedFilename, from name: ResolvedFilename) async {
+        guard described.value != name.value, let currentURL = file.url else { return }
+
+        // Detached for the same reason the save is: the save folder can be
+        // TCC-protected, and a move inside it blocks in the syscall.
+        let renamed = await Task.detached(priority: .utility) {
+            try? ScreenshotSaver.rename(currentURL, toBaseName: described.value)
+        }.value
+        guard let renamed else { return }
+        file.moved(to: renamed)
+        captureIndexer.captureMoved(from: currentURL, to: renamed)
+    }
+
+    // MARK: - Search
+
+    func showCaptureSearch() {
+        searchController.toggle()
     }
 
     private func presentError(_ error: Error) {

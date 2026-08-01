@@ -23,7 +23,17 @@ struct IntelligenceSettingsView: View {
     @AppStorage(AppSettings.Keys.filenameTemplate)
     private var filenameTemplate = AppSettings.Defaults.filenameTemplate
 
+    @AppStorage(AppSettings.Keys.captureIndexingEnabled)
+    private var isIndexingEnabled = AppSettings.Defaults.captureIndexingEnabled
+
+    @AppStorage(AppSettings.Keys.hotkey(for: .searchCaptures))
+    private var searchHotkeyData = Data()
+
     @State private var availability: AIAvailability = .available
+
+    /// The same indexer the capture path feeds — this page both watches its
+    /// progress and drives it.
+    @ObservedObject private var indexer = CaptureIndexer.shared
 
     private let provider = FoundationModelsProvider()
 
@@ -83,6 +93,41 @@ struct IntelligenceSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Search") {
+                Toggle("Index captures so you can search them", isOn: $isIndexingEnabled)
+
+                Text("Reads the text in each screenshot as it's saved and keeps it in a local database, so you can find a capture by something that was written in it. On this Mac only — nothing is uploaded, and only files QuickSnap saved are ever read.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                if isIndexingEnabled {
+                    LabeledContent("Index") {
+                        HStack(spacing: 10) {
+                            if let backfill = indexer.backfill {
+                                ProgressView(value: backfill.fraction)
+                                    .frame(width: 110)
+                                Text("\(backfill.completed) of \(backfill.total)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                                Button("Stop") { indexer.cancelBackfill() }
+                            } else {
+                                Text("\(indexer.indexedCount) \(indexer.indexedCount == 1 ? "capture" : "captures")")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                                Button("Rebuild") { indexer.rebuild() }
+                                    .help("Reads every capture in the save folder again. Worth doing after turning intelligence on, so older captures get descriptions too.")
+                            }
+                        }
+                    }
+
+                    Text("Open search from the menu bar, or with \(searchShortcutDescription). Return reveals a capture in the Finder; ⌘Return opens it for markup.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             MCPSettingsSection()
         }
         .formStyle(.grouped)
@@ -106,6 +151,12 @@ struct IntelligenceSettingsView: View {
 
     private func refreshAvailability() {
         availability = provider.availability
+    }
+
+    /// The recorded shortcut, or a plain description when it's been cleared
+    /// — the menu bar item is always there either way.
+    private var searchShortcutDescription: String {
+        HotkeyShortcut.decode(searchHotkeyData)?.displayString ?? "the shortcut set in Hotkeys"
     }
 
     /// Apple Intelligence has its own System Settings pane; fall back to the

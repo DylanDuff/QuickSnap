@@ -13,6 +13,7 @@ nonisolated enum HotkeyAction: String, CaseIterable {
     case captureFullScreen
     case captureText
     case copyForAI
+    case searchCaptures
 
     var displayName: String {
         switch self {
@@ -21,6 +22,7 @@ nonisolated enum HotkeyAction: String, CaseIterable {
         case .captureFullScreen: return "Capture Full Screen"
         case .captureText: return "Capture Text (OCR)"
         case .copyForAI: return "Copy for AI"
+        case .searchCaptures: return "Search Captures"
         }
     }
 
@@ -39,6 +41,8 @@ nonisolated enum HotkeyAction: String, CaseIterable {
             // reserves it for capturing the Touch Bar, and a shortcut the
             // system already owns fails to register with no visible reason.
             return HotkeyShortcut(keyCode: UInt32(kVK_ANSI_1), modifiers: [.command, .shift], keyLabel: "1")
+        case .searchCaptures:
+            return HotkeyShortcut(keyCode: UInt32(kVK_ANSI_2), modifiers: [.command, .shift], keyLabel: "2")
         }
     }
 }

@@ -26,6 +26,8 @@ struct QuickSnapApp: App {
     private var textHotkeyData = Data()
     @AppStorage(AppSettings.Keys.hotkey(for: .copyForAI))
     private var copyForAIHotkeyData = Data()
+    @AppStorage(AppSettings.Keys.hotkey(for: .searchCaptures))
+    private var searchHotkeyData = Data()
 
     var body: some Scene {
         MenuBarExtra("QuickSnap", systemImage: "camera.viewfinder") {
@@ -57,6 +59,11 @@ struct QuickSnapApp: App {
             .keyboardShortcut(HotkeyShortcut.decode(copyForAIHotkeyData)?.menuShortcut)
 
             Divider()
+
+            Button("Search Captures…") {
+                captureCoordinator.showCaptureSearch()
+            }
+            .keyboardShortcut(HotkeyShortcut.decode(searchHotkeyData)?.menuShortcut)
 
             Button("Open QuickSnap Folder") {
                 captureCoordinator.openSaveFolder()

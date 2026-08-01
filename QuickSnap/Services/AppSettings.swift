@@ -99,6 +99,7 @@ nonisolated enum AppSettings {
         static let showTextPreviewInToast = "showTextPreviewInToast"
         static let copyForAIIncludesText = "copyForAIIncludesText"
         static let aiEnabled = "aiEnabled"
+        static let captureIndexingEnabled = "captureIndexingEnabled"
         static let mcpEnabled = "mcpEnabled"
         static let mcpPort = "mcpPort"
         static let windowBackgroundStyle = "windowBackgroundStyle"
@@ -162,6 +163,11 @@ nonisolated enum AppSettings {
         /// Off until the user asks for it. Nothing runs a model behind their
         /// back, even an on-device one.
         static let aiEnabled = false
+        /// On, unlike the AI toggle above. Indexing is local OCR over a file
+        /// QuickSnap just wrote, kept in a local database — nothing leaves
+        /// the machine and nothing is deleted, and a save folder you can't
+        /// search is the problem this exists to fix.
+        static let captureIndexingEnabled = true
         /// Off by default: it opens a socket that can screenshot the user's
         /// display, which nobody should get without asking for it.
         static let mcpEnabled = false
@@ -487,6 +493,11 @@ nonisolated enum AppSettings {
         bool(forKey: Keys.aiEnabled, default: Defaults.aiEnabled)
     }
 
+    /// Whether saved captures are indexed for search (`CaptureIndex`).
+    static var isCaptureIndexingEnabled: Bool {
+        bool(forKey: Keys.captureIndexingEnabled, default: Defaults.captureIndexingEnabled)
+    }
+
     // MARK: - MCP server
 
     static var isMCPServerEnabled: Bool {
@@ -542,6 +553,7 @@ nonisolated enum AppSettings {
             Keys.previewPosition, Keys.toastPosition, Keys.previewAutoDismissSeconds,
             Keys.toastAutoDismissSeconds, Keys.showTextPreviewInToast,
             Keys.copyForAIIncludesText, Keys.aiEnabled,
+            Keys.captureIndexingEnabled,
             Keys.mcpEnabled, Keys.mcpPort,
             Keys.windowBackgroundStyle, Keys.windowBackgroundPadding, Keys.windowBackgroundColor,
             Keys.markupDefaultColor, Keys.markupDefaultStrokeStep,

@@ -3,7 +3,9 @@
 //  QuickSnap
 //
 
+import CoreGraphics
 import Foundation
+import ImageIO
 
 /// Read access to the save folder, as a list of captures rather than a list
 /// of files.
@@ -37,6 +39,32 @@ nonisolated enum CaptureLibrary {
         let url = AppSettings.saveFolder.appendingPathComponent(name)
         guard FileTag.isMarked(url) else { return nil }
         return entry(at: url)
+    }
+
+    /// Every capture in the save folder, newest first — the backfill's work
+    /// list. Same tag filter as everything else here.
+    static func all() -> [Entry] {
+        entries().sorted { $0.modifiedAt > $1.modifiedAt }
+    }
+
+    /// Decodes a capture off disk. Only ever call for a tagged file — the
+    /// callers here come through `Entry`, which already guarantees that.
+    static func image(at url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    /// A downscaled decode for list rows. Going through ImageIO's thumbnail
+    /// path rather than decoding the full capture matters: a search result
+    /// list would otherwise decode a screenful of retina PNGs to draw them
+    /// at 56 points wide.
+    static func thumbnail(at url: URL, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ] as CFDictionary)
     }
 
     private static func entries() -> [Entry] {
