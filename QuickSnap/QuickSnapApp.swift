@@ -132,44 +132,79 @@ private extension HotkeyShortcut {
 
 struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-
-            // First open of the window in a session: the menu item activates
-            // the app, but this window is created after that, so it needs
-            // ordering front itself.
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
-
-            // The settings window shows no title bar chrome except the
-            // traffic lights: SettingsView strips the toolbar's contents
-            // (`.toolbar(removing: .title/.sidebarToggle)` — NOT
-            // `.toolbar(.hidden, for: .windowToolbar)`, which nukes the
-            // traffic lights too), and these keep the remaining strip
-            // invisible so content renders edge-to-edge. (The system
-            // scroll-edge effect — titlebarAppearsTransparent = false — was
-            // tried for a header blur and misbehaved: no toolbar on first
-            // show, then an opaque grey bar after a tab switch.)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-
-            window.toolbarStyle = .unified
-
-            window.styleMask.insert(.fullSizeContentView)
-
-            window.isMovableByWindowBackground = true
-            // Both halves are required: a clear background on a window
-            // that's still opaque leaves black behind everything the system
-            // composites over it — the scroll-edge toolbar blur rendered as
-            // a solid black bar.
-            window.isOpaque = false
-            window.backgroundColor = .clear
-        }
-        
-        return view
+        WindowConfiguringView()
     }
-    
-    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Re-apply on every SwiftUI update: the settings window is rebuilt
+        // and reconfigured by SwiftUI as tabs change, and configuration
+        // applied once at creation doesn't necessarily survive that.
+        (nsView as? WindowConfiguringView)?.configureWindow()
+    }
+}
+
+/// Configures the settings window whenever this view is in one.
+///
+/// Applied from `viewDidMoveToWindow`, on `didBecomeKey`, and on every
+/// SwiftUI update, all idempotent — a single shot at creation was the
+/// previous version and it silently did nothing at all when `view.window`
+/// was still nil.
+private final class WindowConfiguringView: NSView {
+    private var observer: (any NSObjectProtocol)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        configureWindow()
+
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+            self.observer = nil
+        }
+        guard let window else { return }
+        observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.configureWindow() }
+        }
+    }
+
+    func configureWindow() {
+        guard let window else { return }
+
+        // The settings window shows no title bar chrome except the traffic
+        // lights: SettingsView strips the toolbar's contents
+        // (`.toolbar(removing: .title/.sidebarToggle)` — NOT
+        // `.toolbar(.hidden, for: .windowToolbar)`, which nukes the traffic
+        // lights too), and these keep the remaining strip invisible so
+        // content renders edge-to-edge. (The system scroll-edge effect —
+        // titlebarAppearsTransparent = false — was tried for a header blur
+        // and misbehaved: no toolbar on first show, then an opaque grey bar
+        // after a tab switch.)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unified
+        window.styleMask.insert(.fullSizeContentView)
+        // SwiftUI's `Settings` scene builds its window without `.resizable`,
+        // so a flexible content frame alone leaves the drag corners inert.
+        // The size *range* still comes from SwiftUI's frame.
+        window.styleMask.insert(.resizable)
+        window.isMovableByWindowBackground = true
+        // Both halves are required: a clear background on a window that's
+        // still opaque leaves black behind everything the system composites
+        // over it — the scroll-edge toolbar blur rendered as a solid black
+        // bar.
+        window.isOpaque = false
+        window.backgroundColor = .clear
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    deinit {
+        if let observer {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 }
