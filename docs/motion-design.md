@@ -51,6 +51,37 @@ edge for it to have come from. Under reduced motion both controllers collapse
 their enter geometry to identity (`startFrame = finalFrame`, zero offset /
 identity transform) so the same code path becomes a pure cross-fade.
 
+## The one sanctioned overshoot: zoom limits
+
+Zoom commands (toolbar buttons, ⌘+/⌘−/⌘0/⌘1) are driven frame by frame by
+`MarkupCanvasController`, not handed to PaperKit's own `animated: true`:
+a critically damped spring interpolating zoom in **log space**, because zoom is
+perceived in ratios and a linear ramp reads as fast then crawling.
+
+Asking to go past the floor or ceiling stretches ~9 % beyond it and settles
+back, with the return quicker than the way out so it reads as one movement
+rather than two. This bends the "no overshoot unless a gesture carried
+momentum" rule above, deliberately and narrowly: before it, pressing ⌘− at
+the zoom floor clamped to exactly where the canvas already was and *nothing happened*,
+which reads as a broken control rather than as a limit. The bounce is the
+answer to an input that otherwise has no visible answer — the same feedback a
+scroll view gives at the end of its content. It doesn't apply to ordinary
+zooms that merely land on a limit, only to ones that asked to pass it.
+
+Reduce Motion skips the animation entirely and lands on the value.
+
+Two implementation notes worth keeping: the canvas clamps to its own
+`zoomRange`, so the range is temporarily widened for the duration of a stretch
+and restored on the final frame; and intermediate frames are allowed to be
+dropped by the remote canvas, so the animation always ends with an explicit
+un-animated set of the exact destination.
+
+**Pinch and scroll zoom are not covered by any of this** — those gestures are
+handled entirely inside the remote PaperKit process, which clamps at
+`zoomRange` with no elasticity of its own. Adding it there would mean
+correcting reports that arrive after the gesture settles, which is the
+"settle-window" design that failed for viewport enforcement (see `CLAUDE.md`).
+
 ## Deliberate non-animations
 
 - Selection overlay (area drag, window highlight) is instant by design —

@@ -459,12 +459,31 @@ final class MarkupCanvasController: nonisolated ObservableObject {
     /// window reveals more or less of the canvas rather than rescaling it,
     /// like a Figma canvas and unlike the fit-to-frame preview this
     /// replaced.
-    static let minZoom: CGFloat = 0.1
+    /// Floor deliberately well above "as small as it'll go": below about
+    /// half size a screenshot stops being readable, so more range buys
+    /// nothing but a way to lose the capture in empty canvas.
+    static let minZoom: CGFloat = 0.5
     static let maxZoom: CGFloat = 8
     static let defaultZoom: CGFloat = 1
     /// One press of zoom in / zoom out. Multiplicative, because zoom is
     /// perceived in ratios.
     static let zoomStep: CGFloat = 1.5
+    /// How far past a limit the rubber band stretches before settling back.
+    static let limitStretch: CGFloat = 1.09
+    static let zoomDuration: TimeInterval = 0.28
+    /// The way back from a stretch is quicker than the way out, which is
+    /// what makes it read as the canvas pulling itself back rather than as
+    /// two separate movements.
+    static let limitSettleDuration: TimeInterval = 0.2
+
+    /// Range the canvas is allowed while a rubber band is stretched.
+    private var stretchedScaleRange: ClosedRange<CGFloat> {
+        (Self.minZoom / Self.limitStretch / backingScale)...(Self.maxZoom * Self.limitStretch / backingScale)
+    }
+
+    /// The in-flight zoom animation, cancelled by any new zoom command so
+    /// two of them can't fight over the viewport.
+    private var zoomAnimation: Task<Void, Never>?
 
     /// Image pixels per point. A retina capture carries two pixels per
     /// point, so showing it at actual size means half a point per pixel —
@@ -524,29 +543,139 @@ final class MarkupCanvasController: nonisolated ObservableObject {
     /// the window is still laying itself out.
     private(set) var hasUserAdjustedZoom = false
 
-    func setZoom(_ zoom: CGFloat, animated: Bool = true, userInitiated: Bool = true) {
+    func setZoom(_ requestedZoom: CGFloat, animated: Bool = true, userInitiated: Bool = true) {
         guard let viewController, viewController.view.bounds.width > 1 else { return }
         if userInitiated { hasUserAdjustedZoom = true }
-        viewController.zoomRange = canvasScaleRange
-        viewController.setContentVisibleFrame(visibleFrame(forZoom: zoom), animated: animated)
+        zoomAnimation?.cancel()
+        zoomAnimation = nil
+
+        let settled = min(max(requestedZoom, Self.minZoom), Self.maxZoom)
+        guard animated, !Motion.reduceMotion else {
+            viewController.zoomRange = canvasScaleRange
+            viewController.setContentVisibleFrame(visibleFrame(forZoom: settled), animated: false)
+            return
+        }
+        animateZoom(to: settled, requested: requestedZoom, in: viewController)
+    }
+
+    /// Springs the viewport to a new zoom, and stretches a little past the
+    /// limit when there's nowhere left to go.
+    ///
+    /// Two reasons this doesn't just hand PaperKit `animated: true`. Its
+    /// animation isn't ours to shape, and more importantly a zoom command
+    /// that's already at the floor or ceiling used to clamp to exactly where
+    /// the canvas already was — pressing ⌘− at the floor did nothing whatsoever,
+    /// which reads as the control being broken rather than as a limit. The
+    /// stretch-and-settle is the same "that's the end" feedback a scroll
+    /// view gives you.
+    ///
+    /// This is the one place the house "no overshoot" rule is bent
+    /// (`Motion`): the bounce isn't decoration on an entrance, it's the
+    /// answer to an input that otherwise has no visible answer. Reduce
+    /// Motion skips the whole thing and lands on the value directly.
+    private func animateZoom(to settled: CGFloat, requested: CGFloat, in viewController: PaperMarkupViewController) {
+        let startZoom = zoom
+        let startCenter = CGPoint(x: visibleCanvasFrame.midX, y: visibleCanvasFrame.midY)
+        let endCenter = zoomCenter
+        // Only stretch when the request genuinely went past a limit — an
+        // ordinary zoom that happens to land on one just stops there.
+        let stretched: CGFloat? =
+            if requested > Self.maxZoom * 1.001 { Self.maxZoom * Self.limitStretch }
+            else if requested < Self.minZoom * 0.999 { Self.minZoom / Self.limitStretch }
+            else { nil }
+
+        zoomAnimation = Task { [weak self, weak viewController] in
+            guard let self, let viewController else { return }
+            // The canvas clamps to its own range, so a stretch past the
+            // limit has to be allowed through for the duration of the bounce.
+            if stretched != nil {
+                viewController.zoomRange = self.stretchedScaleRange
+            }
+            await self.springViewport(
+                from: startZoom, to: stretched ?? settled,
+                startCenter: startCenter, endCenter: endCenter,
+                duration: Self.zoomDuration, in: viewController
+            )
+            if stretched != nil, !Task.isCancelled {
+                await self.springViewport(
+                    from: stretched!, to: settled,
+                    startCenter: endCenter, endCenter: endCenter,
+                    duration: Self.limitSettleDuration, in: viewController
+                )
+            }
+            guard !Task.isCancelled else { return }
+            // Land exactly, and put the range back: intermediate frames are
+            // allowed to be dropped by the remote, the final one isn't.
+            viewController.zoomRange = self.canvasScaleRange
+            viewController.setContentVisibleFrame(self.visibleFrame(forZoom: settled), animated: false)
+        }
+    }
+
+    /// Steps the viewport along a critically damped spring, interpolating
+    /// zoom in *log* space so each frame is an equal ratio — zoom is
+    /// perceived multiplicatively, and a linear ramp reads as fast at the
+    /// start and crawling at the end.
+    private func springViewport(
+        from startZoom: CGFloat,
+        to endZoom: CGFloat,
+        startCenter: CGPoint,
+        endCenter: CGPoint,
+        duration: TimeInterval,
+        in viewController: PaperMarkupViewController
+    ) async {
+        guard startZoom > 0, endZoom > 0 else { return }
+        let start = Date()
+        while !Task.isCancelled {
+            let elapsed = Date().timeIntervalSince(start)
+            guard elapsed < duration else { break }
+            let progress = Self.criticallyDamped(CGFloat(elapsed / duration))
+            let zoom = exp(log(startZoom) + (log(endZoom) - log(startZoom)) * progress)
+            let center = CGPoint(
+                x: startCenter.x + (endCenter.x - startCenter.x) * progress,
+                y: startCenter.y + (endCenter.y - startCenter.y) * progress
+            )
+            viewController.setContentVisibleFrame(
+                visibleFrame(forZoom: zoom, centeredOn: center),
+                animated: false
+            )
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+    }
+
+    /// Position along a critically damped spring, normalised to 0…1 over the
+    /// animation's duration. `ω = 6` puts it >99 % settled at the end, so it
+    /// arrives without a visible cut.
+    private static func criticallyDamped(_ t: CGFloat) -> CGFloat {
+        let omega: CGFloat = 6
+        let x = omega * min(max(t, 0), 1)
+        return 1 - (1 + x) * exp(-x)
     }
 
     /// The canvas region a given zoom puts in the viewport, centred on
     /// what's on screen now. Separate from `setZoom` so the opening
     /// placement can *verify* against the same rect it asked for.
     func visibleFrame(forZoom zoom: CGFloat) -> CGRect {
+        visibleFrame(forZoom: zoom, centeredOn: zoomCenter)
+    }
+
+    /// Opening centres on the capture; later zooms centre on whatever the
+    /// user is looking at.
+    private var zoomCenter: CGPoint {
+        hasUserAdjustedZoom
+            ? CGPoint(x: visibleCanvasFrame.midX, y: visibleCanvasFrame.midY)
+            : CGPoint(x: canvasBounds.midX, y: canvasBounds.midY)
+    }
+
+    /// Unclamped on purpose — the animation drives this frame by frame,
+    /// including a little past a limit while the rubber band is stretched.
+    /// `setZoom` clamps the *destination* before it gets here.
+    private func visibleFrame(forZoom zoom: CGFloat, centeredOn center: CGPoint) -> CGRect {
         guard let viewController, viewController.view.bounds.width > 1 else { return visibleCanvasFrame }
-        let clamped = min(max(zoom, Self.minZoom), Self.maxZoom)
-        let scale = clamped / backingScale
+        let scale = max(zoom, 0.001) / backingScale
         let size = CGSize(
             width: viewController.view.bounds.width / scale,
             height: viewController.view.bounds.height / scale
         )
-        // Opening centres on the capture; later zooms centre on whatever the
-        // user is looking at.
-        let center = hasUserAdjustedZoom
-            ? CGPoint(x: visibleCanvasFrame.midX, y: visibleCanvasFrame.midY)
-            : CGPoint(x: canvasBounds.midX, y: canvasBounds.midY)
         return CGRect(
             x: center.x - size.width / 2,
             y: center.y - size.height / 2,

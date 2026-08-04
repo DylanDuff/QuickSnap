@@ -127,6 +127,34 @@ enum FreeZoomProbe {
         check("7: cropping doesn't resize the window", window.frame.size == frameBeforeCrop.size)
         log("   window=\(window.frame.size) canvas=\(canvas.canvasBounds.size) zoom=\(percent(canvas.zoom))")
 
+        // --- 8: an animated zoom lands exactly where it was asked to ---
+        canvas.zoomToActualSize()
+        try? await Task.sleep(for: .seconds(1))
+        canvas.zoomIn()
+        try? await Task.sleep(for: .seconds(1))
+        check("8: an animated zoom step lands exactly", abs(canvas.zoom - MarkupCanvasController.zoomStep) < 0.02)
+        log("   zoom=\(percent(canvas.zoom)) (expected \(percent(MarkupCanvasController.zoomStep)))")
+
+        // --- 9: zooming past a limit stretches, then settles back ---
+        // Sampled across the bounce rather than at one instant, so the check
+        // doesn't depend on catching a particular frame.
+        canvas.setZoom(MarkupCanvasController.minZoom, animated: false)
+        try? await Task.sleep(for: .seconds(0.8))
+        canvas.zoomOut()
+        var stretchedTo = canvas.zoom
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(25))
+            stretchedTo = min(stretchedTo, canvas.zoom)
+        }
+        check("9: asking past the floor stretches past it", stretchedTo < MarkupCanvasController.minZoom * 0.98)
+        try? await Task.sleep(for: .seconds(1))
+        check("9b: …and settles back exactly on the floor", abs(canvas.zoom - MarkupCanvasController.minZoom) < 0.005)
+        check(
+            "9c: …leaving the zoom range back at its limits",
+            abs(viewController.zoomRange.lowerBound - canvas.canvasScaleRange.lowerBound) < 0.0001
+        )
+        log("   stretched to \(percent(stretchedTo)), settled at \(percent(canvas.zoom)), floor is \(percent(MarkupCanvasController.minZoom))")
+
         finish()
     }
 
