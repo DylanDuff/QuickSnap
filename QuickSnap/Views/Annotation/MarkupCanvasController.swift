@@ -111,9 +111,11 @@ final class MarkupCanvasController: nonisolated ObservableObject {
     @Published private(set) var baseImage: CGImage
     @Published private(set) var canvasBounds: CGRect
     /// The canvas region currently visible in the viewport, in image pixels
-    /// — equals `canvasBounds` at fit zoom, a sub-rect when zoomed in.
-    /// Updated from the PaperKit delegate; overlays use it to map view
-    /// points to canvas pixels regardless of zoom/pan.
+    /// — a sub-rect of `canvasBounds` when zoomed in, and *larger* than it
+    /// (with a negative origin) when zoomed out past fit, which is now
+    /// allowed. Updated from the PaperKit delegate; overlays use it to map
+    /// view points to canvas pixels regardless of zoom/pan, and that
+    /// mapping — origin offset plus uniform scale — holds either way.
     @Published private(set) var visibleCanvasFrame: CGRect
 
     /// The last region the remote canvas actually *reported* — nil until
@@ -330,8 +332,8 @@ final class MarkupCanvasController: nonisolated ObservableObject {
         let presets = Self.strokeWidthPresets(in: strokeWidthRange)
         strokeWidth = presets[min(max(defaultStrokeStep, 0), presets.count - 1)]
 
-        if ZoomResizeProbe.isEnabled || UndoProbe.isEnabled {
-            ZoomResizeProbe.currentCanvas = self
+        if ProbeCanvas.isAnyProbeEnabled {
+            ProbeCanvas.current = self
         }
     }
 
@@ -451,11 +453,107 @@ final class MarkupCanvasController: nonisolated ObservableObject {
 
     // MARK: - Zoom
 
-    /// Zoom-in headroom over fit — the upper bound `MarkupCanvasView` gives
-    /// the canvas's `zoomRange` (fit is always the lower bound, so you can
-    /// never zoom out past the whole image). Zooming and panning are
-    /// gesture-only: pinch/scroll handled natively by the remote canvas.
-    static let maxZoomOverFit: CGFloat = 8
+    /// Zoom is a fraction of the capture's **actual size**: 1 means one
+    /// image pixel per device pixel — how big the thing was on screen when
+    /// it was captured. Windows open there and stay there; resizing the
+    /// window reveals more or less of the canvas rather than rescaling it,
+    /// like a Figma canvas and unlike the fit-to-frame preview this
+    /// replaced.
+    static let minZoom: CGFloat = 0.1
+    static let maxZoom: CGFloat = 8
+    static let defaultZoom: CGFloat = 1
+    /// One press of zoom in / zoom out. Multiplicative, because zoom is
+    /// perceived in ratios.
+    static let zoomStep: CGFloat = 1.5
+
+    /// Image pixels per point. A retina capture carries two pixels per
+    /// point, so showing it at actual size means half a point per pixel —
+    /// without this a 2× capture would open twice as large as the thing it
+    /// is a picture of.
+    var backingScale: CGFloat {
+        viewController?.view.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+    }
+
+    /// What the canvas's `zoomRange` should be, in PaperKit's units (points
+    /// per image pixel) rather than ours.
+    var canvasScaleRange: ClosedRange<CGFloat> {
+        (Self.minZoom / backingScale)...(Self.maxZoom / backingScale)
+    }
+
+    /// Current zoom as a fraction of actual size. Derived from the published
+    /// viewport, so views tracking it update on every pinch and scroll.
+    var zoom: CGFloat {
+        guard let view = viewController?.view, visibleCanvasFrame.width > 0 else { return Self.defaultZoom }
+        return view.bounds.width / visibleCanvasFrame.width * backingScale
+    }
+
+    /// The zoom at which the whole capture is visible. Not a floor any more
+    /// — just where the "Fit" control goes.
+    var fitZoom: CGFloat {
+        guard
+            let view = viewController?.view,
+            canvasBounds.width > 0, canvasBounds.height > 0,
+            view.bounds.width > 1, view.bounds.height > 1
+        else { return Self.defaultZoom }
+        return min(
+            view.bounds.width / canvasBounds.width,
+            view.bounds.height / canvasBounds.height
+        ) * backingScale
+    }
+
+    var canZoomIn: Bool { zoom < Self.maxZoom - 0.001 }
+    var canZoomOut: Bool { zoom > Self.minZoom + 0.001 }
+
+    func zoomIn() { setZoom(zoom * Self.zoomStep) }
+    func zoomOut() { setZoom(zoom / Self.zoomStep) }
+    func zoomToActualSize() { setZoom(Self.defaultZoom) }
+    func zoomToFit() { setZoom(fitZoom) }
+
+    /// Zooms about the middle of what's on screen, which is what every
+    /// keyboard/button zoom in every editor does — pinch zoom is the
+    /// remote's own business and anchors on the gesture instead.
+    ///
+    /// Note the canvas will not honour a *pan* while zoomed out past fit:
+    /// with the image smaller than the viewport the remote re-centres it and
+    /// drops the offset (measured, `Probe/FreeZoomProbe.swift`). Zoomed in,
+    /// panning works normally.
+    /// Set once the user has expressed an opinion about zoom, which is what
+    /// stops `MarkupCanvasView` re-placing the viewport at actual size while
+    /// the window is still laying itself out.
+    private(set) var hasUserAdjustedZoom = false
+
+    func setZoom(_ zoom: CGFloat, animated: Bool = true, userInitiated: Bool = true) {
+        guard let viewController, viewController.view.bounds.width > 1 else { return }
+        if userInitiated { hasUserAdjustedZoom = true }
+        viewController.zoomRange = canvasScaleRange
+        viewController.setContentVisibleFrame(visibleFrame(forZoom: zoom), animated: animated)
+    }
+
+    /// The canvas region a given zoom puts in the viewport, centred on
+    /// what's on screen now. Separate from `setZoom` so the opening
+    /// placement can *verify* against the same rect it asked for.
+    func visibleFrame(forZoom zoom: CGFloat) -> CGRect {
+        guard let viewController, viewController.view.bounds.width > 1 else { return visibleCanvasFrame }
+        let clamped = min(max(zoom, Self.minZoom), Self.maxZoom)
+        let scale = clamped / backingScale
+        let size = CGSize(
+            width: viewController.view.bounds.width / scale,
+            height: viewController.view.bounds.height / scale
+        )
+        // Opening centres on the capture; later zooms centre on whatever the
+        // user is looking at.
+        let center = hasUserAdjustedZoom
+            ? CGPoint(x: visibleCanvasFrame.midX, y: visibleCanvasFrame.midY)
+            : CGPoint(x: canvasBounds.midX, y: canvasBounds.midY)
+        return CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
 
     // MARK: - Crop
 
@@ -611,7 +709,7 @@ extension MarkupCanvasController: @MainActor PaperMarkupViewController.Delegate 
         // reports are indistinguishable from user gestures.
         lastRemoteReport = paperMarkupViewController.contentVisibleFrame
         visibleCanvasFrame = paperMarkupViewController.contentVisibleFrame
-        ZoomResizeProbe.log("delegate: observed \(visibleCanvasFrame.integral)")
+        ProbeCanvas.log("delegate: observed \(visibleCanvasFrame.integral)")
     }
 
     /// The only signal a user canvas edit (stroke, move, delete) ever gives

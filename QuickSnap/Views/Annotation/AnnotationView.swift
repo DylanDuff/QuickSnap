@@ -7,10 +7,10 @@ import SwiftUI
 
 /// The annotation window's content: nothing but the PaperKit markup canvas
 /// (screenshot as its background) on a small material mat. Title bar, close
-/// button, and resize are all native window chrome; the window is
-/// aspect-locked to the canvas so the mat always frames the image tightly —
-/// zoom/pan happens inside the canvas viewport and never changes the
-/// window's shape.
+/// button, and resize are all native window chrome; the window resizes
+/// freely, and the canvas inside it is a viewport onto the capture rather
+/// than a frame around it — resizing shows more or less of the canvas and
+/// never rescales what's on it.
 ///
 /// The tools pill is deliberately **not** part of this view: it lives in its
 /// own child panel (`MarkupToolbarPanel`) pinned below the window, so the
@@ -18,9 +18,9 @@ import SwiftUI
 /// image instead of wrapping around a mostly-empty toolbar row.
 struct AnnotationView: View {
     /// Fixed chrome around the canvas. `AnnotationCoordinator` uses
-    /// `chromeSize` to lock window resizing to the image's aspect ratio
-    /// (content size = canvas size + chrome), so these must stay in sync
-    /// with the modifiers in `body`.
+    /// `chromeSize` to size a new window (capture at actual size + chrome),
+    /// so these must stay in sync with the modifiers in `body`. It is no
+    /// longer a resize constraint — the window is free.
     enum Layout {
         static let matTopPadding: CGFloat = 30
         static let matSidePadding: CGFloat = 6
@@ -40,13 +40,10 @@ struct AnnotationView: View {
     }
 
     @ObservedObject var canvas: MarkupCanvasController
-    /// Fired when a crop changes the canvas's aspect ratio (width / height)
-    /// — `AnnotationCoordinator` re-locks and resizes the window to match.
     /// Save and Save As, wired to the same coordinator actions the toolbar
-    /// buttons use — see `saveShortcuts`.
+    /// buttons use — see `keyboardShortcuts`.
     let onSave: (CGImage) -> Void
     let onSaveAs: (CGImage) -> Void
-    let onCanvasAspectChanged: (CGFloat) -> Void
 
     /// ⌘S / ⌘⇧S and ⌘Z / ⌘⇧Z, always available regardless of what the
     /// toolbar contains.
@@ -86,6 +83,19 @@ struct AnnotationView: View {
             Button("") { canvas.redo() }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 .disabled(!canvas.canRedo)
+            // The standard macOS zoom set. ⌘0 is "fit the whole thing in
+            // the window", ⌘1 is actual size — the same pair Preview and
+            // most editors use.
+            Button("") { canvas.zoomIn() }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(!canvas.canZoomIn)
+            Button("") { canvas.zoomOut() }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(!canvas.canZoomOut)
+            Button("") { canvas.zoomToFit() }
+                .keyboardShortcut("0", modifiers: .command)
+            Button("") { canvas.zoomToActualSize() }
+                .keyboardShortcut("1", modifiers: .command)
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -101,8 +111,10 @@ struct AnnotationView: View {
     }
 
     var body: some View {
+        // No `.aspectRatio` any more: the canvas fills the mat whatever
+        // shape the window is, and the capture floats inside it at whatever
+        // zoom the user left it at.
         MarkupCanvasView(controller: canvas)
-            .aspectRatio(canvas.canvasBounds.width / canvas.canvasBounds.height, contentMode: .fit)
             // Only mounted while an insertion or crop is armed: any
             // layer above the remote PaperKit canvas kills its mouse
             // input, which is wanted during those interactions and
@@ -139,9 +151,5 @@ struct AnnotationView: View {
             )
             .background(keyboardShortcuts)
             .ignoresSafeArea(.container, edges: .top)
-            .onChange(of: canvas.canvasBounds) { _, bounds in
-                guard bounds.height > 0 else { return }
-                onCanvasAspectChanged(bounds.width / bounds.height)
-            }
     }
 }

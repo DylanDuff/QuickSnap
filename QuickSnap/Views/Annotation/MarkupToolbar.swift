@@ -128,6 +128,32 @@ struct MarkupToolbar: View {
                 action: controller.redo
             )
             .help("Redo (⇧⌘Z)")
+        case .zoomIn:
+            ToolbarIconButton(
+                systemImage: "plus.magnifyingglass",
+                isEnabled: controller.canZoomIn,
+                action: controller.zoomIn
+            )
+            .help("Zoom in (⌘+)")
+        case .zoomOut:
+            ToolbarIconButton(
+                systemImage: "minus.magnifyingglass",
+                isEnabled: controller.canZoomOut,
+                action: controller.zoomOut
+            )
+            .help("Zoom out (⌘−)")
+        case .zoomToFit:
+            ToolbarIconButton(
+                systemImage: "arrow.up.left.and.arrow.down.right",
+                action: controller.zoomToFit
+            )
+            .help("Zoom to fit (⌘0)")
+        case .actualSize:
+            ToolbarIconButton(
+                systemImage: "1.magnifyingglass",
+                action: controller.zoomToActualSize
+            )
+            .help("Actual size (⌘1)")
         case .color: colorButton
         case .stroke: strokeButton
         case .copy:

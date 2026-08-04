@@ -10,15 +10,19 @@ import SwiftUI
 
 /// Hosts PaperKit's `PaperMarkupViewController` (the PencilKit-backed markup
 /// canvas) in SwiftUI. The screenshot is the canvas's `contentView`
-/// background. Fit is the zoom floor (`zoomRange` = fit…fit × headroom), so
-/// you can never zoom out past the whole image; pinch/scroll zoom and pan
-/// are handled natively by the remote PaperKit process (gesture-only, no
-/// toolbar zoom UI). The Coordinator preserves the relative zoom across
-/// window resizes via verify-and-retry enforcement — see `enforceViewport`.
+/// background.
 ///
-/// `PaperMarkupViewController` is `public` but not `open`, so fit-tracking
-/// can't be done by overriding `viewDidLayout()` in a subclass — the
-/// coordinator listens for the view's frame-change notifications instead.
+/// Zoom is independent of the window: the canvas opens at actual size and
+/// stays there, and `zoomRange` spans `MarkupCanvasController.minZoom`…
+/// `maxZoom` about actual size — so you can zoom out well past fit and the
+/// image floats in empty canvas. Resizing the window reveals more or less of
+/// that canvas instead of rescaling its contents. Pinch/scroll zoom and pan
+/// are handled natively by the remote PaperKit process; the toolbar's zoom
+/// controls go through `MarkupCanvasController.setZoom`.
+///
+/// `PaperMarkupViewController` is `public` but not `open`, so this can't be
+/// done by overriding `viewDidLayout()` in a subclass — the coordinator
+/// listens for the view's frame-change notifications instead.
 struct MarkupCanvasView: NSViewControllerRepresentable {
     @ObservedObject var controller: MarkupCanvasController
 
@@ -56,20 +60,21 @@ struct MarkupCanvasView: NSViewControllerRepresentable {
     @MainActor
     final class Coordinator {
         private var observations: [any NSObjectProtocol] = []
-        private var appliedFitZoom: CGFloat = 0
-        /// Non-nil while a live window resize is in progress: the visible
-        /// canvas region captured when the resize started (before any size
-        /// change), restored by enforcement when the resize ends.
-        private var liveResizeTarget: CGRect?
-        /// The verify-and-retry loop driving the viewport to a target
-        /// region — see `enforceViewport`.
-        private var enforcementTask: Task<Void, Never>?
-        private var enforcementTarget: CGRect?
+        /// The viewport is only positioned once, when the view first gets a
+        /// real size: from then on zoom belongs to the user (and to the
+        /// remote canvas, which holds scale across a resize by itself).
+        /// Set when the user grabs a window edge: from that moment the
+        /// window's size is theirs and the viewport is left alone.
+        private var userIsResizingWindow = false {
+            didSet { if userIsResizingWindow { initialPlacementTask?.cancel() } }
+        }
+        /// Drives the opening viewport until the remote confirms it — see
+        /// `placeInitialViewport`.
+        private var initialPlacementTask: Task<Void, Never>?
         weak var imageView: NSImageView?
         var appliedImage: CGImage?
         /// The canvas bounds the current image was applied at — how a crop
-        /// (bounds changed, re-fit) is told apart from a redaction (same
-        /// bounds, leave the viewport alone).
+        /// (bounds changed) is told apart from a redaction (same bounds).
         private var appliedBounds: CGRect?
 
         func observeViewportEvents(of viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
@@ -82,175 +87,103 @@ struct MarkupCanvasView: NSViewControllerRepresentable {
             ) { [weak self, weak viewController, weak controller] _ in
                 MainActor.assumeIsolated {
                     guard let self, let viewController, let controller else { return }
-                    self.updateZoomBounds(of: viewController, controller: controller)
+                    self.viewDidResize(viewController, controller: controller)
                 }
             })
-            // The window doesn't exist yet at setup time, so both live-resize
-            // observers register unfiltered and match the window at fire time.
+            // The window doesn't exist yet at setup time, so this registers
+            // unfiltered and matches the window at fire time.
             observations.append(NotificationCenter.default.addObserver(
                 forName: NSWindow.willStartLiveResizeNotification,
                 object: nil,
                 queue: .main
-            ) { [weak self, weak viewController, weak controller] notification in
+            ) { [weak self, weak viewController] notification in
                 MainActor.assumeIsolated {
-                    guard let self, let viewController, let controller,
+                    guard let self, let viewController,
                         let window = viewController.view.window,
                         (notification.object as? NSWindow) === window else { return }
-                    self.beginLiveResize(controller: controller)
-                }
-            })
-            observations.append(NotificationCenter.default.addObserver(
-                forName: NSWindow.didEndLiveResizeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self, weak viewController, weak controller] notification in
-                MainActor.assumeIsolated {
-                    guard let self, let viewController, let controller,
-                        let window = viewController.view.window,
-                        (notification.object as? NSWindow) === window else { return }
-                    self.endLiveResize(of: viewController, controller: controller)
+                    self.userIsResizingWindow = true
                 }
             })
         }
 
-        /// The user grabbed a window edge (sent *before* any size change,
-        /// so the observed region is still trustworthy): capture the region
-        /// to restore. During the drag the remote canvas freezes its zoom
-        /// and drops every host→remote set (verified empirically with the
-        /// probe, 2026-07 — pinned zoom ranges and one-shot frame sets were
-        /// both silently ignored), so nothing useful can be done until the
-        /// drag ends; `endLiveResize` then enforces the captured region.
-        private func beginLiveResize(controller: MarkupCanvasController) {
-            // If an enforcement is mid-flight (e.g. post-crop), its target
-            // is the intent — the observed region may still be drifted.
-            liveResizeTarget = enforcementTarget ?? controller.visibleCanvasFrame
-            cancelEnforcement()
-            ZoomResizeProbe.log("liveResize BEGIN: captured target=\(liveResizeTarget!.integral)")
+        /// The canvas view got a new size — a step of the window's initial
+        /// layout, or a resize.
+        ///
+        /// Once the window belongs to the user, deliberately almost nothing
+        /// happens here: holding absolute scale across a viewport resize is
+        /// the remote canvas's *own* default behaviour, and the
+        /// verify-and-retry enforcement this replaced existed solely to
+        /// fight that default back into fit-tracking. Everything that made
+        /// that fragile (the remote dropping host sets mid-drag, resuming at
+        /// an unknowable moment, reports indistinguishable from gestures)
+        /// only mattered because the host had an opinion about zoom.
+        ///
+        /// Before then it re-places the viewport at actual size on **every**
+        /// layout step, rather than once at first layout. A one-shot placed
+        /// it at whatever transient size the hosting view happened to have
+        /// mid-layout, and because the remote then holds that scale as the
+        /// window settles, windows opened at 200 % (measured — the size at
+        /// first notification is not the size the window ends up).
+        private func viewDidResize(_ viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
+            guard viewController.view.bounds.width > 1, controller.canvasBounds.width > 0 else { return }
+            viewController.zoomRange = controller.canvasScaleRange
+            guard !userIsResizingWindow, !controller.hasUserAdjustedZoom else { return }
+            placeInitialViewport(of: viewController, controller: controller)
         }
 
-        private func endLiveResize(of viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
-            guard let target = liveResizeTarget else { return }
-            liveResizeTarget = nil
-            ZoomResizeProbe.log("liveResize END: enforcing target=\(target.integral)")
-            enforceViewport(target, of: viewController, controller: controller)
-        }
-
-        /// Drives the remote canvas to show `target`, verifying and
-        /// retrying: sets are re-sent (zoom range first — a stale range
-        /// silently clamps frame sets into no-ops) until the *observed*
-        /// `visibleCanvasFrame` matches. One-shot sets are not reliable:
-        /// the remote drops host→remote sync during live resizes and
-        /// resumes at an unknowable moment, so the only dependable pattern
-        /// is retry-until-verified. Bounded by a deadline in case the
-        /// target is genuinely unsatisfiable; cancelled by a new
-        /// enforcement or an incoming live resize.
-        private func enforceViewport(_ target: CGRect, of viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
-            cancelEnforcement()
-            let canvas = controller.canvasBounds
-            guard canvas.width > 0, canvas.height > 0 else { return }
-            let size = CGSize(width: min(target.width, canvas.width), height: min(target.height, canvas.height))
-            let clamped = CGRect(
-                x: min(max(target.minX, 0), canvas.width - size.width),
-                y: min(max(target.minY, 0), canvas.height - size.height),
-                width: size.width,
-                height: size.height
-            )
-            enforcementTarget = clamped
-            enforcementTask = Task { [weak self, weak viewController, weak controller] in
-                // The remote resumes accepting host sets at an unknowable
-                // moment — measured ~0.4 s after growing drags but ~1.3 s+
-                // after shrinking ones (probe, 2026-07) — so the deadline
-                // must comfortably outlast the slow case.
+        /// Drives the opening viewport to actual size, re-sending until the
+        /// remote *reports* it landed.
+        ///
+        /// A one-shot set is not enough, in two different ways, both
+        /// measured: sent during the window's first layout it lands at a
+        /// transient view size the window then grows out of, and sent before
+        /// the remote canvas is ready it is silently dropped altogether,
+        /// leaving the canvas at the remote's own default scale (1 point per
+        /// image pixel — 200 % on a retina capture). Verification is against
+        /// `lastRemoteReport`, never `visibleCanvasFrame`, whose initial
+        /// value is a local assumption that would "converge" instantly.
+        ///
+        /// This is the one survivor of the enforcement machinery the free
+        /// zoom design deleted, and it's bounded: it stops on its own once
+        /// the viewport is confirmed, and the moment the user grabs an edge
+        /// or touches a zoom control it is cancelled and never runs again.
+        private func placeInitialViewport(of viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
+            initialPlacementTask?.cancel()
+            initialPlacementTask = Task { [weak viewController, weak controller] in
                 let deadline = Date(timeIntervalSinceNow: 4)
                 while !Task.isCancelled, Date() < deadline {
-                    guard let viewController, let controller else { return }
-                    // Verify against what the remote actually reported —
-                    // never `visibleCanvasFrame`, whose initial value is a
-                    // local assumption (see `lastRemoteReport`).
-                    if let observed = controller.lastRemoteReport, observed.isApproximately(clamped) {
-                        ZoomResizeProbe.log("enforce: converged at \(observed.integral)")
-                        self?.enforcementTarget = nil
+                    guard let viewController, let controller,
+                        !controller.hasUserAdjustedZoom, !self.userIsResizingWindow
+                    else { return }
+                    let target = controller.visibleFrame(forZoom: MarkupCanvasController.defaultZoom)
+                    if let observed = controller.lastRemoteReport, observed.isApproximately(target) {
+                        ProbeCanvas.log("initial viewport: landed at \(observed.integral)")
                         return
                     }
-                    let viewWidth = viewController.view.bounds.width
-                    if viewWidth > 1 {
-                        let fitZoom = viewWidth / controller.canvasBounds.width
-                        viewController.zoomRange = fitZoom...(fitZoom * MarkupCanvasController.maxZoomOverFit)
-                    }
-                    viewController.setContentVisibleFrame(clamped, animated: false)
-                    ZoomResizeProbe.log("enforce: sent target=\(clamped.integral) observed=\(controller.lastRemoteReport?.integral.debugDescription ?? "none")")
+                    viewController.zoomRange = controller.canvasScaleRange
+                    controller.setZoom(MarkupCanvasController.defaultZoom, animated: false, userInitiated: false)
+                    ProbeCanvas.log("initial viewport: sent \(target.integral), observed \(controller.lastRemoteReport?.integral.debugDescription ?? "none")")
                     try? await Task.sleep(for: .milliseconds(80))
                 }
-                ZoomResizeProbe.log("enforce: ended without convergence (cancelled=\(Task.isCancelled))")
-                self?.enforcementTarget = nil
             }
         }
 
-        private func cancelEnforcement() {
-            enforcementTask?.cancel()
-            enforcementTask = nil
-            enforcementTarget = nil
-        }
-
-        /// Swaps the canvas's background to a new (cropped) base image: the
-        /// image view gets the new image and frame, and an enforcement
-        /// drives the viewport to fit the new canvas bounds — it keeps
-        /// running through the window's animated resize to the new aspect
-        /// ratio (those frame-change steps see it active and stand back).
+        /// Swaps the canvas's background to a new (cropped or redacted) base
+        /// image. The viewport is left where the user had it either way: a
+        /// crop no longer re-fits, because fit is no longer where the canvas
+        /// lives, and re-fitting after a redaction would yank them out of
+        /// whatever they had zoomed in to read.
         func applyBaseImage(_ image: CGImage, controller: MarkupCanvasController, to viewController: PaperMarkupViewController) {
             guard image !== appliedImage else { return }
             let bounds = controller.canvasBounds
-            let boundsChanged = appliedBounds != bounds
             appliedImage = image
             appliedBounds = bounds
             imageView?.image = NSImage(cgImage: image, size: bounds.size)
             imageView?.frame = bounds
-
-            // A crop changes the canvas, so the viewport has to be re-fitted.
-            // A redaction replaces the same-sized pixels, and re-fitting
-            // there would yank the user out of wherever they had zoomed to
-            // in order to read what they were redacting.
-            guard boundsChanged else { return }
-            appliedFitZoom = 0
-            ZoomResizeProbe.log("applyBaseImage: enforcing fit of new canvas \(bounds.size)")
-            enforceViewport(bounds, of: viewController, controller: controller)
-        }
-
-        /// Viewport frame changed, preserving the *relative* zoom (the
-        /// remote's own behavior keeps absolute scale, which silently
-        /// changes the effective zoom as the window shrinks).
-        ///
-        /// During a live resize nothing is sent — the remote drops all
-        /// host→remote sets until the drag ends (`endLiveResize` restores
-        /// the captured region then). Programmatic resizes (initial
-        /// layout, post-crop window animation, title-bar zoom button)
-        /// start an enforcement toward the pre-change region; steps of an
-        /// ongoing animation don't restart it (the first step's target is
-        /// the intent — later observed regions may already be drifted).
-        private func updateZoomBounds(of viewController: PaperMarkupViewController, controller: MarkupCanvasController) {
-            let canvasBounds = controller.canvasBounds
-            let viewWidth = viewController.view.bounds.width
-            guard viewWidth > 1, canvasBounds.width > 0 else { return }
-            let fitZoom = viewWidth / canvasBounds.width
-            guard abs(fitZoom - appliedFitZoom) > 0.001 else { return }
-            let isFirstLayout = appliedFitZoom == 0
-            appliedFitZoom = fitZoom
-
-            if liveResizeTarget != nil {
-                ZoomResizeProbe.log("frameChange (live resize): viewWidth=\(viewWidth) fit=\(fitZoom) — deferred to endLiveResize")
-                return
-            }
-            if enforcementTarget != nil {
-                ZoomResizeProbe.log("frameChange (enforcing): viewWidth=\(viewWidth) fit=\(fitZoom) — enforcement continues")
-                return
-            }
-            let target = isFirstLayout ? canvasBounds : controller.visibleCanvasFrame
-            ZoomResizeProbe.log("frameChange: viewWidth=\(viewWidth) fit=\(fitZoom) firstLayout=\(isFirstLayout) enforcing=\(target.integral)")
-            enforceViewport(target, of: viewController, controller: controller)
         }
 
         deinit {
-            enforcementTask?.cancel()
+            initialPlacementTask?.cancel()
             for observation in observations {
                 NotificationCenter.default.removeObserver(observation)
             }

@@ -31,15 +31,12 @@ import UniformTypeIdentifiers
 /// reverts to `.accessory` once the last one closes.
 @MainActor
 final class AnnotationCoordinator: NSObject {
-    /// Per-window state. `aspect` is the image's ratio (width / height),
-    /// used by the `NSWindowDelegate` resize hooks to keep the window locked
-    /// to "canvas at that ratio + fixed chrome"
-    /// (`AnnotationView.Layout.chromeSize`), so the mat always lines up with
-    /// the window edges. The lock holds regardless of the canvas's internal
-    /// zoom/pan (the viewport shape always matches the image); a crop
-    /// re-locks to the new ratio via `canvasAspectChanged`.
+    /// Per-window state.
+    ///
+    /// There is deliberately no aspect ratio here any more: the window
+    /// resizes freely and the canvas inside it is a viewport onto the
+    /// capture, not a frame around it.
     private struct AnnotationSession {
-        var aspect: CGFloat
         /// The tools pill, a child window pinned below `window` — kept here
         /// so window moves/resizes can re-pin it and close can tear it down.
         let toolbar: MarkupToolbarPanel
@@ -81,7 +78,6 @@ final class AnnotationCoordinator: NSObject {
     /// front of the user instead of on a server.
     func openAnnotationWindow(image: CGImage, file: CaptureFile, heldUpload: HeldUpload? = nil) {
         let imageSize = CGSize(width: image.width, height: image.height)
-        let aspect = imageSize.width / imageSize.height
         let contentSize = Self.initialContentSize(forImageSize: imageSize)
 
         let window = NSWindow(
@@ -100,10 +96,7 @@ final class AnnotationCoordinator: NSObject {
         window.titlebarAppearsTransparent = true
         window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
-        window.contentMinSize = Self.conformingContentSize(
-            forCanvasWidth: Self.minContentWidth - AnnotationView.Layout.chromeSize.width,
-            aspect: aspect
-        )
+        window.contentMinSize = Self.minContentSize
         window.delegate = self
 
         // Owned here rather than by `AnnotationView`, because the canvas and
@@ -183,14 +176,6 @@ final class AnnotationCoordinator: NSObject {
             onSaveAs: { [weak self, weak window] flattened in
                 guard let self, let window else { return }
                 self.saveAnnotatedCopy(flattened, originalFileURL: file.url, attachedTo: window)
-            },
-            onCanvasAspectChanged: { [weak self, weak window] aspect in
-                // Fired from a SwiftUI onChange during view update — defer
-                // the window mutation out of that pass.
-                DispatchQueue.main.async {
-                    guard let self, let window else { return }
-                    self.canvasAspectChanged(for: window, to: aspect)
-                }
             }
         )
         let hostingView = NSHostingView(rootView: annotationView)
@@ -212,7 +197,7 @@ final class AnnotationCoordinator: NSObject {
                 window?.title = Self.windowTitle(for: url)
             }
 
-        windows[window] = AnnotationSession(aspect: aspect, toolbar: toolbar, fileObserver: fileObserver)
+        windows[window] = AnnotationSession(toolbar: toolbar, fileObserver: fileObserver)
         if windows.count == 1 {
             NSApp.setActivationPolicy(.regular)
         }
@@ -224,40 +209,6 @@ final class AnnotationCoordinator: NSObject {
         // re-centered, which `windowDidResize` handles.
         window.addChildWindow(toolbar, ordered: .above)
         toolbar.reposition()
-    }
-
-    /// A crop changed the canvas's aspect ratio: re-lock the window to the
-    /// new ratio and resize it in place — canvas width kept where possible,
-    /// top-left corner anchored, clamped to the screen's visible area.
-    private func canvasAspectChanged(for window: NSWindow, to aspect: CGFloat) {
-        guard let oldAspect = windows[window]?.aspect else { return }
-        windows[window]?.aspect = aspect
-        guard abs(oldAspect - aspect) > 0.0001 else { return }
-
-        let chrome = AnnotationView.Layout.chromeSize
-        window.contentMinSize = Self.conformingContentSize(
-            forCanvasWidth: Self.minContentWidth - chrome.width,
-            aspect: aspect
-        )
-
-        var canvasWidth = window.contentRect(forFrameRect: window.frame).width - chrome.width
-        if let screen = window.screen {
-            let maxContentHeight = window.contentRect(
-                forFrameRect: NSRect(origin: .zero, size: screen.visibleFrame.size)
-            ).height
-            canvasWidth = min(canvasWidth, (maxContentHeight - chrome.height) * aspect)
-        }
-        canvasWidth = max(canvasWidth, Self.minContentWidth - chrome.width)
-        let content = Self.conformingContentSize(forCanvasWidth: canvasWidth, aspect: aspect)
-
-        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: content))
-        frame.origin.x = window.frame.origin.x
-        frame.origin.y = window.frame.maxY - frame.height
-        if let screen = window.screen {
-            frame.origin.y = max(frame.origin.y, screen.visibleFrame.minY)
-            frame.origin.x = min(frame.origin.x, screen.visibleFrame.maxX - frame.width)
-        }
-        window.setFrame(frame, display: true, animate: true)
     }
 
     /// Runs the credential check on demand and arms the review.
@@ -381,78 +332,41 @@ final class AnnotationCoordinator: NSObject {
         window.close()
     }
 
-    /// Minimum window content width. The pill is its own window now, so this
-    /// no longer has to fit it — but a window much narrower than the pill
-    /// floating beneath it looks wrong, so the floor stays roughly there.
-    /// The minimum height follows from the aspect lock instead of having its
-    /// own floor.
-    private static let minContentWidth: CGFloat = 480
+    /// Floor for a freely-resizable window. The pill is its own window, so
+    /// this no longer has to fit it — but a window much narrower than the
+    /// pill floating beneath it looks wrong, so the width floor stays
+    /// roughly there. Height needs its own floor now that it doesn't follow
+    /// from an aspect ratio.
+    private static let minContentSize = CGSize(width: 480, height: 320)
 
-    /// The one true window content size for a given canvas width: the image
-    /// at its aspect ratio plus the fixed chrome (mat padding + toolbar).
-    private static func conformingContentSize(forCanvasWidth canvasWidth: CGFloat, aspect: CGFloat) -> CGSize {
-        let chrome = AnnotationView.Layout.chromeSize
-        return CGSize(
-            width: canvasWidth + chrome.width,
-            height: canvasWidth / aspect + chrome.height
-        )
-    }
-
-    /// Windows open at a fixed compact width regardless of image size (the
-    /// canvas fit-zooms to whatever viewport it gets); very tall captures
-    /// narrow further to cap the height, and `minContentWidth` wins over
-    /// that cap so the toolbar always fits.
+    /// Windows open showing the capture at actual size where that fits, so
+    /// what you see is the size the thing really was. Big captures are
+    /// capped to a comfortable share of the screen rather than opening
+    /// enormous — the canvas is then simply larger than the viewport, which
+    /// costs nothing now that zoom and window size are independent.
     private static func initialContentSize(forImageSize imageSize: CGSize) -> CGSize {
-        let targetContentWidth: CGFloat = 550
-        let maxCanvasHeight: CGFloat = 900
         let chrome = AnnotationView.Layout.chromeSize
-        let aspect = imageSize.width / imageSize.height
-        var canvasWidth = min(targetContentWidth - chrome.width, maxCanvasHeight * aspect)
-        canvasWidth = max(canvasWidth, minContentWidth - chrome.width)
-        return conformingContentSize(forCanvasWidth: canvasWidth, aspect: aspect)
+        let backingScale = NSScreen.main?.backingScaleFactor ?? 2
+        let actualSize = CGSize(
+            width: imageSize.width / backingScale,
+            height: imageSize.height / backingScale
+        )
+        let visible = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
+        return CGSize(
+            width: min(max(actualSize.width + chrome.width, minContentSize.width), visible.width * 0.7),
+            height: min(max(actualSize.height + chrome.height, minContentSize.height), visible.height * 0.7)
+        )
     }
 }
 
 extension AnnotationCoordinator: NSWindowDelegate {
-    /// Aspect-ratio lock. `NSWindow.contentAspectRatio` can't express
-    /// "image ratio plus a fixed chrome offset", so user resizes are
-    /// constrained here instead: whichever axis the user is dragging more
-    /// drives, and the other follows from the image's aspect ratio.
-    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
-        guard let aspect = windows[sender]?.aspect else { return frameSize }
-        let chrome = AnnotationView.Layout.chromeSize
-        let proposed = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: frameSize)).size
-        let current = sender.contentRect(forFrameRect: sender.frame).size
-
-        // The canvas width each axis of the proposal asks for on its own.
-        let fromWidth = proposed.width - chrome.width
-        let fromHeight = (proposed.height - chrome.height) * aspect
-        // AppKit proposes a change on the dragged axis only, so an edge drag
-        // leaves the other one untouched (bar rounding).
-        let widthMoved = abs(proposed.width - current.width) > 0.5
-        let heightMoved = abs(proposed.height - current.height) > 0.5
-
-        let canvasWidth: CGFloat
-        if widthMoved && heightMoved {
-            // Corner drag: project the proposal onto the constraint line
-            // (least squares) instead of letting one axis drive outright.
-            // Picking the axis that moved more made corner drags judder —
-            // on a diagonal the winner flips from frame to frame, so width
-            // and height take turns overshooting the mouse. A projection
-            // has no branch to flip, so it stays continuous.
-            let weight = 1 / (aspect * aspect)
-            canvasWidth = (fromWidth + fromHeight * weight) / (1 + weight)
-        } else if heightMoved {
-            canvasWidth = fromHeight
-        } else {
-            // Also the no-op case, where this reproduces the current size.
-            canvasWidth = fromWidth
-        }
-
-        let clampedCanvasWidth = max(canvasWidth, Self.minContentWidth - chrome.width)
-        let content = Self.conformingContentSize(forCanvasWidth: clampedCanvasWidth, aspect: aspect)
-        return sender.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
-    }
+    /// No `windowWillResize` / `windowWillUseStandardFrame` here on purpose.
+    /// The window used to be locked to "canvas at the image's aspect ratio +
+    /// fixed chrome", which is what made it a frame around the capture; now
+    /// it resizes freely and the canvas is a viewport, so AppKit's own
+    /// behaviour (including the zoom button) is exactly right and every
+    /// constraint that fought it — including the least-squares projection
+    /// that stopped corner drags juddering — is gone with the lock.
 
     /// Re-pin the tools pill: a resize can change the window's width (so the
     /// pill is no longer centered) and its origin (which AppKit tracks for
@@ -460,22 +374,6 @@ extension AnnotationCoordinator: NSWindowDelegate {
     func windowDidResize(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         windows[window]?.toolbar.reposition()
-    }
-
-    /// Zoom (green traffic light / double-click title bar): largest
-    /// conforming frame that fits the screen's visible area, kept at the
-    /// top of that area and horizontally centered.
-    func windowWillUseStandardFrame(_ window: NSWindow, defaultFrame: NSRect) -> NSRect {
-        guard let aspect = windows[window]?.aspect else { return defaultFrame }
-        let chrome = AnnotationView.Layout.chromeSize
-        let maxContent = window.contentRect(forFrameRect: defaultFrame).size
-        let fitCanvasWidth = min(maxContent.width - chrome.width, (maxContent.height - chrome.height) * aspect)
-        let canvasWidth = max(fitCanvasWidth, Self.minContentWidth - chrome.width)
-        let content = Self.conformingContentSize(forCanvasWidth: canvasWidth, aspect: aspect)
-        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: content))
-        frame.origin.x = defaultFrame.midX - frame.width / 2
-        frame.origin.y = defaultFrame.maxY - frame.height
-        return frame
     }
 
     func windowWillClose(_ notification: Notification) {

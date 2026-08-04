@@ -73,8 +73,8 @@ final class CaptureCoordinator: ObservableObject {
         hotkeyCoordinator.start()
         mcpCoordinator.host = self
         mcpCoordinator.startIfEnabled()
-        ZoomResizeProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         UndoProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
+        FreeZoomProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         Task {
             await runRetentionCleanup()
             // After retention, so the index's launch reconcile doesn't walk

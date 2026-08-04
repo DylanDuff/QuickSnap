@@ -67,7 +67,7 @@ enum UndoProbe {
         )
         try? await Task.sleep(for: .seconds(2))
 
-        guard let canvas = ZoomResizeProbe.currentCanvas,
+        guard let canvas = ProbeCanvas.current,
             let window = NSApp.windows.first(where: { $0.delegate === annotationCoordinator }),
             let viewController = canvas.viewController
         else {
