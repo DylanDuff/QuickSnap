@@ -18,8 +18,17 @@ import SwiftUI
 /// the app for a while.
 struct OnboardingView: View {
     let onFinish: () -> Void
+    /// Which step to open on. Only ever non-default from the render probe,
+    /// which needs to photograph the later steps in situ.
+    var initialStep: Step = .welcome
 
-    @State private var step: Step = .welcome
+    @State private var step: Step
+
+    init(onFinish: @escaping () -> Void, initialStep: Step = .welcome) {
+        self.onFinish = onFinish
+        self.initialStep = initialStep
+        _step = State(initialValue: initialStep)
+    }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     enum Step: Int, CaseIterable {
@@ -44,12 +53,12 @@ struct OnboardingView: View {
                 navigationButtons
             }
             .padding(.horizontal, 36)
-            .padding(.top, step == .welcome ? 0 : 36)
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: step == .welcome ? .center : .top
-            )
+            // Enough top padding to keep the tallest step clear of the
+            // traffic lights and the Skip button in the title-bar strip;
+            // since the block is centred, it reads as a slight downward
+            // nudge rather than as a margin.
+            .padding(.top, step == .welcome ? 0 : 28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
             progressDots
                 .padding(.bottom, 24)

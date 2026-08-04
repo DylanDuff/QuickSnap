@@ -105,6 +105,10 @@ enum OnboardingRenderProbe {
         guard let directory = outputDirectory else { return }
         Task {
             render(OnboardingView(onFinish: {}), named: "0-flow", to: directory)
+            // The later steps in situ: standalone renders don't exercise the
+            // root's vertical centring or the title-bar clearance.
+            render(OnboardingView(onFinish: {}, initialStep: .hotkeys), named: "0-flow-hotkeys", to: directory)
+            render(OnboardingView(onFinish: {}, initialStep: .toolbar), named: "0-flow-toolbar", to: directory)
             render(padded(OnboardingWelcomeStep()), named: "1-welcome", to: directory)
             render(padded(OnboardingPermissionStep()), named: "2-permission", to: directory)
             render(padded(OnboardingSavingStep()), named: "3-saving", to: directory)
