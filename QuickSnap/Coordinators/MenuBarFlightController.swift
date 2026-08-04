@@ -35,7 +35,8 @@ final class MenuBarFlightController {
         guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(source) }) ?? NSScreen.main else {
             return completion()
         }
-        let target = MenuBarPresence.shared.iconFrame ?? Self.fallbackTarget(on: screen)
+        let slot = MenuBarPresence.shared.iconFrame ?? Self.fallbackTarget(on: screen)
+        let target = Self.landingRect(in: slot)
 
         let panel = NSPanel(
             contentRect: source,
@@ -83,6 +84,25 @@ final class MenuBarFlightController {
             panel.close()
             self?.panel = nil
         }
+    }
+
+    /// The glyph inside the item's slot, not the slot itself.
+    ///
+    /// The status item's *window* is much bigger than what it draws —
+    /// measured 34 × 33 pt for an icon of roughly half that — so landing on
+    /// that frame puts an oversized icon on the menu bar and the swap to the
+    /// real one is visible. `iconScale` is the one number to tune if the
+    /// hand-off still shows.
+    private static let iconScale: CGFloat = 0.52
+
+    private static func landingRect(in slot: NSRect) -> NSRect {
+        let side = min(max(slot.height * iconScale, 14), 22)
+        return NSRect(
+            x: slot.midX - side / 2,
+            y: slot.midY - side / 2,
+            width: side,
+            height: side
+        )
     }
 
     /// Used when the status item's window can't be found: the trailing end of
