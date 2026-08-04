@@ -54,7 +54,7 @@ struct OnboardingFinishStep: View {
 
                 Divider()
 
-                Text("Everything here — and a lot more — lives in Settings, from the menu bar icon.")
+                Text("Everything here, and a lot more, lives in Settings, access them from the menubar.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
