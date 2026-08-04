@@ -79,14 +79,10 @@ struct OnboardingWelcomeStep: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.quickSnapViolet.opacity(0.16))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.quickSnapViolet.opacity(0.35), lineWidth: 1)
-            )
+            // Clear glass rather than a tinted panel: the underglow is
+            // right behind this row, and a fill of our own sat on top of it
+            // as a flat shape. Glass takes its colour from what's under it.
+            .glassEffect(.clear, in: .rect(cornerRadius: 12))
             .opacity(isIconInFlight ? 0 : 1)
             .animation(.easeOut(duration: 0.2), value: isIconInFlight)
             .onboardingReveal(2, isRevealed: isRevealed, reduceMotion: reduceMotion)
