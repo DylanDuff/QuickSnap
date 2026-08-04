@@ -60,7 +60,9 @@ struct OnboardingWelcomeStep: View {
                 // `MenuBarExtra`), so the thing to look for up there is the
                 // thing shown here.
                 Image(systemName: "camera.viewfinder")
-                    .font(.callout)
+                    // Close to the size it ends up at in the menu bar, so the
+                    // flight is a journey rather than a resize.
+                    .font(.system(size: MenuBarPresence.iconPointSize))
                     // Reported in window coordinates; the coordinator turns
                     // it into screen coordinates, since only it has the
                     // window.

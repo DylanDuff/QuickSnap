@@ -58,7 +58,9 @@ final class MenuBarFlightController {
         let icon = NSImageView()
         icon.image = MenuBarPresence.iconImage()
         icon.contentTintColor = .labelColor
-        icon.imageScaling = .scaleProportionallyUpOrDown
+        // Fills the landing rect exactly, matching however the menu bar
+        // renders it, rather than fitting inside it and coming up short.
+        icon.imageScaling = .scaleAxesIndependently
         panel.contentView = icon
         panel.alphaValue = 0
         panel.orderFrontRegardless()
@@ -86,14 +88,11 @@ final class MenuBarFlightController {
         }
     }
 
-    /// Where the flown icon comes to rest: the drawn image's own size,
-    /// centred in the item's slot.
-    ///
-    /// Not the slot itself — that's the status item's *window*, measured
-    /// 34 × 33 pt around a much smaller glyph, and landing on it dropped an
-    /// oversized icon on the menu bar. Taking the size from the same image
-    /// the item draws means there's no scale factor to keep in step, and the
-    /// rect keeps the image's exact size.
+    /// Where the flown icon comes to rest: exactly the rect the menu bar
+    /// draws its icon in, which `MenuBarPresence.iconFrame` measures rather
+    /// than derives. Earlier versions centred a guessed size in the item's
+    /// window and then in its button, and both left the icon a point or two
+    /// off — enough to see it jump as the real one took over.
     ///
     /// Deliberately **not** `.integral`: that returns the smallest integral
     /// rect *containing* the original, so it grows the frame by up to a point
@@ -102,12 +101,11 @@ final class MenuBarFlightController {
     /// half points lands on whole pixels on a Retina display without
     /// changing the size.
     private static func landingRect(in slot: NSRect) -> NSRect {
-        let size = MenuBarPresence.iconImage().size
-        return NSRect(
-            x: roundedToHalf(slot.midX - size.width / 2),
-            y: roundedToHalf(slot.midY - size.height / 2),
-            width: size.width,
-            height: size.height
+        NSRect(
+            x: roundedToHalf(slot.minX),
+            y: roundedToHalf(slot.minY),
+            width: slot.width,
+            height: slot.height
         )
     }
 

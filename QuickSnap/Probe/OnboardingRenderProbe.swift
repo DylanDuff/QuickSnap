@@ -67,6 +67,16 @@ enum OnboardingRenderProbe {
                     for subview in view.subviews { dump(subview, depth: depth + 1) }
                 }
                 dump(root, depth: 0)
+                // The exact rect the button draws the image into — the thing
+                // the flown icon actually has to match.
+                if let button = MenuBarPresence.statusBarButtonForProbe(in: root) as? NSButton {
+                    print("[onboarding-window]   button image size=\(button.image?.size.debugDescription ?? "nil") scaling=\(button.imageScaling.rawValue)")
+                    if let cell = button.cell as? NSButtonCell {
+                        let rect = cell.imageRect(forBounds: button.bounds)
+                        let inScreen = candidate.convertToScreen(button.convert(rect, to: nil))
+                        print("[onboarding-window]   drawn image rect: \(rect) screen=\(inScreen)")
+                    }
+                }
             }
 
             let screen = window.screen ?? NSScreen.main

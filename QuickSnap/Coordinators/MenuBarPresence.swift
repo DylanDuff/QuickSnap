@@ -128,15 +128,26 @@ final class MenuBarPresence: nonisolated ObservableObject {
             return name.contains("StatusBar") || name.contains("MenuBarExtra")
         }) else { return nil }
 
-        // The button, not the window: measured, the window is 34 × 33 while
-        // the button that actually draws the icon is 34 × 22 inside it. Their
-        // centres happen to coincide today, but the button is the honest
-        // target and the one that will stay right if the menu bar's metrics
-        // change.
-        if let button = Self.statusBarButton(in: window.contentView) {
-            return window.convertToScreen(button.convert(button.bounds, to: nil))
+        // The rect the icon is *drawn* in — not the window (34 × 33), not
+        // even the button inside it (34 × 22), but the image rect within that
+        // button, measured at 18 × 18. Anything coarser leaves the flown icon
+        // landing a point or two out, which is exactly enough to see the
+        // hand-off. SwiftUI re-renders the label rather than passing this
+        // type's image straight through, so its size is the button's to
+        // report, not ours to assume.
+        guard let button = Self.statusBarButton(in: window.contentView) as? NSButton else {
+            return window.frame
         }
-        return window.frame
+        if let cell = button.cell as? NSButtonCell {
+            let drawn = cell.imageRect(forBounds: button.bounds)
+            return window.convertToScreen(button.convert(drawn, to: nil))
+        }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    /// Exposed for the probe, which reports the button's drawn image rect.
+    static func statusBarButtonForProbe(in view: NSView?) -> NSView? {
+        statusBarButton(in: view)
     }
 
     private static func statusBarButton(in view: NSView?) -> NSView? {
