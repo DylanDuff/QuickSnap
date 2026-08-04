@@ -33,7 +33,7 @@ final class MenuBarPresence: nonisolated ObservableObject {
     /// Point size the item's symbol is drawn at. A touch larger than the
     /// system default, which rendered small enough that the icon arriving
     /// from onboarding had to shrink to meet it.
-    static let iconPointSize: CGFloat = 18
+    static let iconPointSize: CGFloat = 17.5
 
     /// The item's icon — and the very same image the onboarding flight
     /// carries, so the two can't drift apart in size or weight and the
