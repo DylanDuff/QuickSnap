@@ -26,7 +26,7 @@ struct OnboardingSavingStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "folder",
+            systemImage: "square.and.arrow.down",
             title: "Saving screenshots",
             message: "Captures land in a folder and on your clipboard. Both are optional — plenty of people only ever paste."
         ) {

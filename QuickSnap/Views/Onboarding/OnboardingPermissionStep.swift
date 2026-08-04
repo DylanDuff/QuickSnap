@@ -28,7 +28,7 @@ struct OnboardingPermissionStep: View {
 
     var body: some View {
         OnboardingStepLayout(
-            systemImage: "lock.shield",
+            systemImage: "record.circle",
             title: "Allow screen recording",
             message: "macOS asks every app for permission before it can see your screen. QuickSnap can't capture anything until you allow it."
         ) {

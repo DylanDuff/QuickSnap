@@ -44,14 +44,11 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The step and its navigation are one block: the buttons belong
-            // to the page they act on and sit just under its content, rather
-            // than pinned to the window's bottom edge where they read as
-            // window chrome and leave a long empty gap on the shorter steps.
-            VStack(spacing: 26) {
-                content
-                navigationButtons
-            }
+            // Centred in whatever space is left over, with the navigation
+            // pinned below it: tying the buttons to the bottom of the content
+            // made them jump between steps, because each step is a different
+            // height. They hold still now, just above the dots.
+            content
             .padding(.horizontal, 36)
             // Enough top padding to keep the tallest step clear of the
             // traffic lights and the Skip button in the title-bar strip;
@@ -59,6 +56,9 @@ struct OnboardingView: View {
             // nudge rather than as a margin.
             .padding(.top, step == .welcome ? 0 : 28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+
+            navigationButtons
+                .padding(.bottom, 18)
 
             progressDots
                 .padding(.bottom, 24)
@@ -99,7 +99,7 @@ struct OnboardingView: View {
         }
     }
 
-    /// Back and Continue, centred under the step's content. Skip isn't here
+    /// Back and Continue, in a fixed place just above the dots. Skip isn't here
     /// — it's a way *out* of the flow rather than a way through it, so it
     /// sits in the top corner where it can't be mistaken for the next step.
     private var navigationButtons: some View {
