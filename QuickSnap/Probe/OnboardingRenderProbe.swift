@@ -51,6 +51,13 @@ enum OnboardingRenderProbe {
                 print("[onboarding-window] no window found")
                 return NSApp.terminate(nil)
             }
+            // Option 2's whole premise: can the status item's window be
+            // found, and does its frame look like the menu bar?
+            print("[onboarding-window] menu bar icon frame: \(MenuBarPresence.shared.iconFrame?.debugDescription ?? "NOT FOUND")")
+            for candidate in NSApp.windows {
+                print("[onboarding-window]   window: \(type(of: candidate)) frame=\(candidate.frame)")
+            }
+
             let screen = window.screen ?? NSScreen.main
             print("[onboarding-window] frame=\(window.frame)")
             print("[onboarding-window] contentRect=\(window.contentRect(forFrameRect: window.frame))")
@@ -115,7 +122,7 @@ enum OnboardingRenderProbe {
             // root's vertical centring or the title-bar clearance.
             render(OnboardingView(onFinish: {}, initialStep: .hotkeys), named: "0-flow-hotkeys", to: directory)
             render(OnboardingView(onFinish: {}, initialStep: .toolbar), named: "0-flow-toolbar", to: directory)
-            render(padded(OnboardingWelcomeStep()), named: "1-welcome", to: directory)
+            render(padded(OnboardingWelcomeStep(menuBarIconFrame: .constant(.zero), isIconInFlight: false)), named: "1-welcome", to: directory)
             render(padded(OnboardingPermissionStep()), named: "2-permission", to: directory)
             render(padded(OnboardingSavingStep()), named: "3-saving", to: directory)
             render(padded(OnboardingHotkeysStep()), named: "4-hotkeys", to: directory)

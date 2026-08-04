@@ -70,7 +70,12 @@ final class OnboardingCoordinator: NSObject {
         // the Dock by an app with no Dock icon is a window you can't get back.
 
         let hostingView = NSHostingView(
-            rootView: OnboardingView(onFinish: { [weak self] in self?.finish() })
+            rootView: OnboardingView(
+                onFinish: { [weak self] in self?.finish() },
+                onSendIconToMenuBar: { [weak self] frameInWindow in
+                    self?.sendIconToMenuBar(from: frameInWindow)
+                }
+            )
         )
         // **Must be empty.** `NSHostingView` otherwise pushes SwiftUI's
         // computed min/max size onto the window as `contentMinSize` — and it
@@ -91,6 +96,10 @@ final class OnboardingCoordinator: NSObject {
         window.center()
 
         self.window = window
+        // Hidden for the duration: the welcome step promises the icon is up
+        // there, and the promise lands better if it arrives while they watch.
+        // Every way out of this flow puts it back — see `restoreMenuBarIcon`.
+        MenuBarPresence.shared.showsIcon = false
         // An accessory app's window opens behind whatever the user is looking
         // at unless the app activates first — the same trap the Settings menu
         // item hit. On first run there is nothing else of ours on screen, so
@@ -105,6 +114,7 @@ final class OnboardingCoordinator: NSObject {
     /// finished and be asked again next launch, which would be nagging.
     private func finish() {
         AppSettings.hasCompletedOnboarding = true
+        restoreMenuBarIcon()
         window?.close()
     }
 
@@ -115,12 +125,36 @@ final class OnboardingCoordinator: NSObject {
         show()
     }
 
+    /// Flies the icon from where it sits in the window up to the menu bar,
+    /// revealing the real item as it lands.
+    private func sendIconToMenuBar(from frameInWindow: CGRect) {
+        guard let window else { return restoreMenuBarIcon() }
+        // SwiftUI's `.global` frame is in the window's space, top-left
+        // origin; screen coordinates are bottom-left.
+        let flipped = NSRect(
+            x: frameInWindow.minX,
+            y: window.contentLayoutRect.height - frameInWindow.maxY,
+            width: frameInWindow.width,
+            height: frameInWindow.height
+        )
+        MenuBarFlightController.shared.fly(from: window.convertToScreen(flipped)) { [weak self] in
+            self?.restoreMenuBarIcon()
+        }
+    }
+
+    /// Idempotent, and called from every exit: a menu bar app whose icon
+    /// never comes back is an app the user can't reach.
+    private func restoreMenuBarIcon() {
+        MenuBarPresence.shared.showsIcon = true
+    }
+
     private static let contentSize = CGSize(width: 620, height: 560)
 }
 
 extension OnboardingCoordinator: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         AppSettings.hasCompletedOnboarding = true
+        restoreMenuBarIcon()
         window = nil
         // Back to a menu-bar-only app, unless an annotation window is up and
         // still wants a Dock icon.

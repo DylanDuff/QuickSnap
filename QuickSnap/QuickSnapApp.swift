@@ -36,11 +36,15 @@ struct QuickSnapApp: App {
     /// Searching means nothing without an index, so the item goes away with
     /// it — read here rather than checked once so the menu follows the
     /// setting live.
+    @ObservedObject private var menuBar = MenuBarPresence.shared
     @AppStorage(AppSettings.Keys.captureIndexingEnabled)
     private var isIndexingEnabled = AppSettings.Defaults.captureIndexingEnabled
 
     var body: some Scene {
-        MenuBarExtra("QuickSnap", systemImage: "camera.viewfinder") {
+        // The label form, not `systemImage:`, so the icon can be swapped for
+        // a blank one while onboarding flies it into place. The item stays
+        // inserted throughout — see `MenuBarPresence`.
+        MenuBarExtra(isInserted: .constant(true)) {
             Button("Capture Area") {
                 captureCoordinator.startAreaCapture()
             }
@@ -97,6 +101,17 @@ struct QuickSnapApp: App {
             
             Button("Quit QuickSnap") {
                 NSApplication.shared.terminate(nil)
+            }
+        } label: {
+            // A blank image rather than nothing at all: it keeps the item's
+            // slot (and therefore its window, which is how the onboarding
+            // flight finds where to land) while drawing no icon.
+            if menuBar.showsIcon {
+                Image(systemName: "camera.viewfinder")
+                    .accessibilityLabel("QuickSnap")
+            } else {
+                Image(nsImage: NSImage(size: NSSize(width: 18, height: 18)))
+                    .accessibilityLabel("QuickSnap")
             }
         }
         .menuBarExtraStyle(.menu)

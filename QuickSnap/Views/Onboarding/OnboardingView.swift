@@ -18,14 +18,26 @@ import SwiftUI
 /// the app for a while.
 struct OnboardingView: View {
     let onFinish: () -> Void
+    /// Sends the menu bar icon on its way, given where it currently is in
+    /// window coordinates. The coordinator owns this because the window is
+    /// what turns those into screen coordinates.
+    var onSendIconToMenuBar: ((CGRect) -> Void)?
     /// Which step to open on. Only ever non-default from the render probe,
     /// which needs to photograph the later steps in situ.
     var initialStep: Step = .welcome
 
     @State private var step: Step
 
-    init(onFinish: @escaping () -> Void, initialStep: Step = .welcome) {
+    @State private var menuBarIconFrame: CGRect = .zero
+    @State private var isIconInFlight = false
+
+    init(
+        onFinish: @escaping () -> Void,
+        onSendIconToMenuBar: ((CGRect) -> Void)? = nil,
+        initialStep: Step = .welcome
+    ) {
         self.onFinish = onFinish
+        self.onSendIconToMenuBar = onSendIconToMenuBar
         self.initialStep = initialStep
         _step = State(initialValue: initialStep)
     }
@@ -95,7 +107,11 @@ struct OnboardingView: View {
     @ViewBuilder
     private var content: some View {
         switch step {
-        case .welcome: OnboardingWelcomeStep()
+        case .welcome:
+            OnboardingWelcomeStep(
+                menuBarIconFrame: $menuBarIconFrame,
+                isIconInFlight: isIconInFlight
+            )
         case .permission: OnboardingPermissionStep()
         case .saving: OnboardingSavingStep()
         case .hotkeys: OnboardingHotkeysStep()
@@ -163,6 +179,13 @@ struct OnboardingView: View {
         guard let next = Step(rawValue: step.rawValue + 1) else {
             onFinish()
             return
+        }
+        // Leaving the welcome step is when the icon goes to the menu bar —
+        // it reads as "here's where I'll be" on the way out, rather than
+        // something happening while the page is still being read.
+        if step == .welcome, menuBarIconFrame != .zero, let onSendIconToMenuBar {
+            isIconInFlight = true
+            onSendIconToMenuBar(menuBarIconFrame)
         }
         withAnimation(reduceMotion ? nil : Motion.revealSpring) { step = next }
     }
