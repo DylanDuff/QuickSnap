@@ -128,8 +128,13 @@ than blur or pixelation for a related reason — heavy pixelation of a short
 string is theoretically recoverable, which is unacceptable for an API key,
 and a black box reads unambiguously as "removed on purpose".
 
-Not undoable, like crop. An undo that could bring a credential back is not a
-feature.
+Not undoable — and it clears the whole undo history with it. Every snapshot
+behind a redaction holds the pre-redaction image, so an undo that reached one
+would put the credential back on screen and into whatever gets exported next.
+An undo that can un-redact is not a feature; losing the earlier steps is the
+price, and redaction is normally the last thing done before the capture goes
+out anyway. (Crop, by contrast, *is* undoable — see the undo bullet in
+`CLAUDE.md`.)
 
 One consequence worth knowing: replacing the base image would normally
 re-fit the viewport (that's what a crop needs), which would yank the user out
