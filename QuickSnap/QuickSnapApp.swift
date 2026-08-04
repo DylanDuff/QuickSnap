@@ -167,6 +167,13 @@ struct WindowConfigurator: NSViewRepresentable {
 private final class WindowConfiguringView: NSView {
     private var observer: (any NSObjectProtocol)?
 
+    /// The system appearance can change while the window is open, and the
+    /// background above depends on it.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        configureWindow()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         configureWindow()
@@ -212,12 +219,16 @@ private final class WindowConfiguringView: NSView {
         // drag-to-reorder in the markup toolbar editor: grabbing an item
         // moved the window instead. The title bar strip is still draggable,
         // which is enough.
-        // Both halves are required: a clear background on a window that's
-        // still opaque leaves black behind everything the system composites
-        // over it — the scroll-edge toolbar blur rendered as a solid black
-        // bar.
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        // Translucent in dark mode, solid in light. A material over a light
+        // desktop reads as washed-out and busy rather than as glass, and
+        // whatever is behind the window shows through as noise; in dark mode
+        // the same material is exactly right. Both halves of the translucent
+        // case are required: a clear background on a window that's still
+        // opaque leaves black behind everything the system composites over
+        // it — the scroll-edge toolbar blur rendered as a solid black bar.
+        let isLight = window.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        window.isOpaque = isLight
+        window.backgroundColor = isLight ? .white : .clear
 
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)

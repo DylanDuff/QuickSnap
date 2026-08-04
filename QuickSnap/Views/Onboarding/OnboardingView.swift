@@ -52,6 +52,7 @@ struct OnboardingView: View {
         _step = State(initialValue: initialStep)
     }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     enum Step: Int, CaseIterable {
         case welcome
@@ -97,7 +98,15 @@ struct OnboardingView: View {
         // it any more, only the dots.
         .background {
             ZStack {
-                Rectangle().fill(.regularMaterial)
+                // Solid in light mode, material in dark. The material is
+                // right over a dark desktop and washed-out over a light one,
+                // where whatever is behind the window reads as noise under
+                // the content rather than as glass.
+                if colorScheme == .dark {
+                    Rectangle().fill(.regularMaterial)
+                } else {
+                    Rectangle().fill(.white)
+                }
                 // Mounted for the whole flow, not just the welcome step: it
                 // stays put as the steps change, so the reveal plays once on
                 // opening and the light carries through rather than snapping
