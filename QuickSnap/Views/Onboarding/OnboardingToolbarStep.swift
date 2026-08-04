@@ -21,14 +21,7 @@ struct OnboardingToolbarStep: View {
             title: "Your markup tools",
             message: "Double-click a screenshot's preview to mark it up. This is the toolbar you'll get — drag anything you want into it, and anything you don't back out."
         ) {
-            VStack(alignment: .leading, spacing: 12) {
-                MarkupToolbarEditor()
-
-                Text("Undo and redo, zoom, and the export buttons all have keyboard shortcuts whether or not they're in the toolbar.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            MarkupToolbarEditor()
         }
     }
 }
