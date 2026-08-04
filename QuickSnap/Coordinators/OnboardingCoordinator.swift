@@ -138,9 +138,17 @@ final class OnboardingCoordinator: NSObject {
         }
         // SwiftUI's `.global` frame is in the window's space, top-left
         // origin; screen coordinates are bottom-left.
+        //
+        // Flipped against the **content view's** height, not
+        // `contentLayoutRect` — on a `.fullSizeContentView` window that rect
+        // excludes the title bar strip, and the hosting view spans the whole
+        // content area (its safe area is off). Using it started the flight a
+        // title bar's worth too low, so the icon jumped down before setting
+        // off.
+        let contentHeight = window.contentView?.bounds.height ?? window.contentLayoutRect.height
         let flipped = NSRect(
             x: frameInWindow.minX,
-            y: window.contentLayoutRect.height - frameInWindow.maxY,
+            y: contentHeight - frameInWindow.maxY,
             width: frameInWindow.width,
             height: frameInWindow.height
         )
