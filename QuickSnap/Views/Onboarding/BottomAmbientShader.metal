@@ -32,14 +32,27 @@ float bottomAmbientSoftCircle(float2 point, float2 center, float radius, float b
     float progress,
     half4 tint
 ) {
+    // --- Tunables, all in one place -----------------------------------
+    // The falloff constants are *inverse* reach: smaller means the light
+    // climbs further up the window before fading out.
+    const float bloomFalloff = 3.1;      // main body of the glow
+    const float mistFalloff = 2.1;       // haze above it
+    const float mistStrength = 0.3;
+    const float fadeSpan = 0.88;         // how far the flat vertical fade carries
+    const float wispFalloff = 2.5;       // rising ribbons
+    const float pocketFalloff = 2.3;     // drifting bright pockets
+    const float revealCeiling = 1.06;    // >1 lets the reveal pass the top edge
+    const float overallIntensity = 0.62; // peak alpha at the bottom
+    // -------------------------------------------------------------------
+
     float2 uv = position / max(size, float2(1.0));
     float aspectRatio = size.x / max(size.y, 1.0);
     float revealProgress = smoothstep(0.0, 1.0, saturate(progress));
 
     float bottomDistance = 1.0 - uv.y;
-    float verticalFade = 1.0 - smoothstep(0.0, 0.62, bottomDistance);
-    float deepBloom = exp(-bottomDistance * 4.4);
-    float upperMist = exp(-bottomDistance * 3.0) * 0.2;
+    float verticalFade = 1.0 - smoothstep(0.0, fadeSpan, bottomDistance);
+    float deepBloom = exp(-bottomDistance * bloomFalloff);
+    float upperMist = exp(-bottomDistance * mistFalloff) * mistStrength;
 
     // Wide overlapping sources avoid a single visible flame or spotlight shape.
     float horizontalFlow = sin(uv.x * 4.2 + time * 5.5) * 0.08;
@@ -50,9 +63,9 @@ float bottomAmbientSoftCircle(float2 point, float2 center, float radius, float b
     float2 leftCenter = float2(0.08 + horizontalFlow, 1.08);
     float2 middleCenter = float2(0.52 - horizontalFlow * 0.45, 1.12);
     float2 rightCenter = float2(0.94 + horizontalFlow * 0.35, 1.06);
-    float leftGlow = 1.0 - smoothstep(0.0, 0.88, distance(uv, leftCenter));
-    float middleGlow = 1.0 - smoothstep(0.0, 1.04, distance(uv, middleCenter));
-    float rightGlow = 1.0 - smoothstep(0.0, 0.82, distance(uv, rightCenter));
+    float leftGlow = 1.0 - smoothstep(0.0, 1.16, distance(uv, leftCenter));
+    float middleGlow = 1.0 - smoothstep(0.0, 1.38, distance(uv, middleCenter));
+    float rightGlow = 1.0 - smoothstep(0.0, 1.1, distance(uv, rightCenter));
     float sourceGlow = leftGlow * 0.7 + middleGlow * 0.82 + rightGlow * 0.64;
 
     float risingNoise = sin(uv.x * 7.0 + bottomDistance * 9.0 - time * 0.78) * 0.08;
@@ -63,7 +76,7 @@ float bottomAmbientSoftCircle(float2 point, float2 center, float radius, float b
     // Grow upward with a moving boundary instead of revealing a rectangular mask.
     float revealWarp = sin(uv.x * 5.0 - time * 1.4) * 0.055;
     revealWarp += sin(uv.x * 13.0 + time * 0.86) * 0.025;
-    float revealHeight = mix(0.0, 0.86, revealProgress);
+    float revealHeight = mix(0.0, revealCeiling, revealProgress);
     float organicReveal = 1.0 - smoothstep(
         revealHeight - 0.14,
         revealHeight + 0.1,
@@ -81,7 +94,7 @@ float bottomAmbientSoftCircle(float2 point, float2 center, float radius, float b
             + sin(wispWarp * 9.0 + time * 0.36) * 1.1
     ) * 0.5;
     risingBands *= 0.58 + sin(wispWarp * 13.0 - time * 0.68) * 0.24;
-    float wisps = risingBands * exp(-bottomDistance * 3.2);
+    float wisps = risingBands * exp(-bottomDistance * wispFalloff);
 
     float lightPockets = 0.0;
     for (ushort index = 0; index < 6; index++) {
@@ -104,7 +117,7 @@ float bottomAmbientSoftCircle(float2 point, float2 center, float radius, float b
     float volume = saturate(
         (deepBloom * 0.42 + upperMist) * sourceGlow * wideSource * driftingMist * breathing
             + wisps * sourceGlow * 0.13
-            + lightPockets * exp(-bottomDistance * 3.0) * 0.24
+            + lightPockets * exp(-bottomDistance * pocketFalloff) * 0.24
             + verticalFade * 0.1
     ) * organicReveal;
 
@@ -125,7 +138,7 @@ float bottomAmbientSoftCircle(float2 point, float2 center, float radius, float b
             * moteFade;
     }
 
-    half volumeAlpha = half(saturate(volume * 0.48));
+    half volumeAlpha = half(saturate(volume * overallIntensity));
     half moteAlpha = half(saturate(motes * 0.14 * smoothstep(0.18, 0.72, revealProgress)));
     half sourceMask = layer.sample(position).a;
     volumeAlpha *= tint.a * sourceMask;

@@ -18,7 +18,12 @@ import SwiftUI
 /// keeps its depth without anything moving. That's the house rule — degrade
 /// to a still, not to nothing.
 struct AmbientUnderglow: View {
-    var tint: Color = .accentColor
+    /// Deliberately a fixed colour, **not** `Color.accentColor`. The accent
+    /// asset is empty, so that follows whatever accent the user has picked in
+    /// System Settings — which is blue by default and is why this started out
+    /// blue. The welcome screen's light should be QuickSnap's violet, the app
+    /// icon's colour, on everyone's Mac.
+    var tint: Color = Color(red: 0.49, green: 0.36, blue: 0.93)
 
     /// How long the glow takes to grow up from the bottom edge on first
     /// appearance.
