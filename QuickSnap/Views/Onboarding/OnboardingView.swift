@@ -71,6 +71,11 @@ struct OnboardingView: View {
             .ignoresSafeArea()
         }
         .ignoresSafeArea(.container, edges: .top)
+        // In the title-bar strip, opposite the traffic lights. The
+        // window is `.fullSizeContentView`, so this region is ours to
+        // draw in and a control here still takes its clicks ahead of the
+        // title bar's drag.
+        .overlay(alignment: .topTrailing) { skipButton }
     }
 
     @ViewBuilder
@@ -85,6 +90,9 @@ struct OnboardingView: View {
         }
     }
 
+    /// Back and Continue, centred under the step's content. Skip isn't here
+    /// — it's a way *out* of the flow rather than a way through it, so it
+    /// sits in the top corner where it can't be mistaken for the next step.
     private var navigationButtons: some View {
         HStack(spacing: 12) {
             if step != .welcome {
@@ -93,20 +101,23 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer()
-
-            // Every step is skippable, including the permission one — the
-            // app explains itself again at the point a capture actually
-            // fails, and refusing to let someone in is worse than letting
-            // them hit that.
-            if !step.isLast {
-                Button("Skip", action: onFinish)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-            }
-
             Button(step.isLast ? "Done" : "Continue", action: goForward)
                 .keyboardShortcut(.defaultAction)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Every step is skippable, including the permission one — the app
+    /// explains itself again at the point a capture actually fails, and
+    /// refusing to let someone in is worse than letting them hit that.
+    @ViewBuilder
+    private var skipButton: some View {
+        if !step.isLast {
+            Button("Skip", action: onFinish)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(.top, 14)
+                .padding(.trailing, 18)
         }
     }
 
@@ -114,7 +125,7 @@ struct OnboardingView: View {
         HStack(spacing: 7) {
             ForEach(Step.allCases, id: \.self) { dot in
                 Circle()
-                    .fill(dot == step ? Color.accentColor : Color.primary.opacity(0.18))
+                    .fill(dot == step ? Color.white : Color.white.opacity(0.28))
                     .frame(width: 6, height: 6)
             }
         }
