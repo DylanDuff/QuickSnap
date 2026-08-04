@@ -93,16 +93,26 @@ final class MenuBarFlightController {
     /// 34 × 33 pt around a much smaller glyph, and landing on it dropped an
     /// oversized icon on the menu bar. Taking the size from the same image
     /// the item draws means there's no scale factor to keep in step, and the
-    /// rect is rounded to whole pixels so the two can't land half a point
-    /// apart.
+    /// rect keeps the image's exact size.
+    ///
+    /// Deliberately **not** `.integral`: that returns the smallest integral
+    /// rect *containing* the original, so it grows the frame by up to a point
+    /// and drags the origin down and left with it — which is precisely the
+    /// slight shift you could see as the flown icon handed over. Rounding to
+    /// half points lands on whole pixels on a Retina display without
+    /// changing the size.
     private static func landingRect(in slot: NSRect) -> NSRect {
         let size = MenuBarPresence.iconImage().size
         return NSRect(
-            x: slot.midX - size.width / 2,
-            y: slot.midY - size.height / 2,
+            x: roundedToHalf(slot.midX - size.width / 2),
+            y: roundedToHalf(slot.midY - size.height / 2),
             width: size.width,
             height: size.height
-        ).integral
+        )
+    }
+
+    private static func roundedToHalf(_ value: CGFloat) -> CGFloat {
+        (value * 2).rounded() / 2
     }
 
     /// Used when the status item's window can't be found: the trailing end of

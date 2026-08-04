@@ -56,6 +56,17 @@ enum OnboardingRenderProbe {
             print("[onboarding-window] menu bar icon frame: \(MenuBarPresence.shared.iconFrame?.debugDescription ?? "NOT FOUND")")
             for candidate in NSApp.windows {
                 print("[onboarding-window]   window: \(type(of: candidate)) frame=\(candidate.frame)")
+                let name = String(describing: type(of: candidate))
+                guard name.contains("StatusBar"), let root = candidate.contentView else { continue }
+                // Where the icon is actually drawn inside the item's window:
+                // centring on the window itself lands the flown icon slightly
+                // off if the button doesn't fill it.
+                func dump(_ view: NSView, depth: Int) {
+                    let inScreen = candidate.convertToScreen(view.convert(view.bounds, to: nil))
+                    print("[onboarding-window]     \(String(repeating: "  ", count: depth))\(type(of: view)) bounds=\(view.bounds) screen=\(inScreen)")
+                    for subview in view.subviews { dump(subview, depth: depth + 1) }
+                }
+                dump(root, depth: 0)
             }
 
             let screen = window.screen ?? NSScreen.main

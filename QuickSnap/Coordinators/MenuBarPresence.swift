@@ -123,9 +123,28 @@ final class MenuBarPresence: nonisolated ObservableObject {
     /// difference between the icon landing on the real thing and landing in
     /// empty space on a busy menu bar.
     var iconFrame: NSRect? {
-        NSApp.windows.first { window in
+        guard let window = NSApp.windows.first(where: { window in
             let name = String(describing: type(of: window))
             return name.contains("StatusBar") || name.contains("MenuBarExtra")
-        }?.frame
+        }) else { return nil }
+
+        // The button, not the window: measured, the window is 34 × 33 while
+        // the button that actually draws the icon is 34 × 22 inside it. Their
+        // centres happen to coincide today, but the button is the honest
+        // target and the one that will stay right if the menu bar's metrics
+        // change.
+        if let button = Self.statusBarButton(in: window.contentView) {
+            return window.convertToScreen(button.convert(button.bounds, to: nil))
+        }
+        return window.frame
+    }
+
+    private static func statusBarButton(in view: NSView?) -> NSView? {
+        guard let view else { return nil }
+        if String(describing: type(of: view)).contains("StatusBarButton") { return view }
+        for subview in view.subviews {
+            if let found = statusBarButton(in: subview) { return found }
+        }
+        return nil
     }
 }
