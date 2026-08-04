@@ -70,7 +70,7 @@ nonisolated enum MarkupToolbarItem: String, Codable, CaseIterable, Sendable {
         case .eraser: return "Eraser"
         case .insert: return "Insert"
         case .crop: return "Crop"
-        case .redact: return "Check for sensitive text"
+        case .redact: return "Redact"
         case .undo: return "Undo"
         case .redo: return "Redo"
         case .zoomIn: return "Zoom in"
