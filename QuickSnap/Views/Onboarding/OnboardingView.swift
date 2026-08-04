@@ -215,8 +215,18 @@ struct OnboardingStepLayout<Content: View>: View {
     private var iconImage: some View {
         Image(systemName: systemImage)
             .font(.system(size: 30, weight: .light))
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(Color.quickSnapViolet)
     }
+}
+
+extension Color {
+    /// QuickSnap's own violet — the app icon's colour, and the one the
+    /// onboarding flow is lit and iconed in.
+    ///
+    /// Deliberately not `Color.accentColor`: the accent asset is empty, so
+    /// that resolves to whatever accent colour the user has set in System
+    /// Settings (blue by default). Brand colour shouldn't change per machine.
+    static let quickSnapViolet = Color(red: 0.49, green: 0.36, blue: 0.93)
 }
 
 /// The staggered entrance shared by the step layout and the welcome screen.
