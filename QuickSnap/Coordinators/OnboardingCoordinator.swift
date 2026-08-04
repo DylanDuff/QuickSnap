@@ -152,9 +152,13 @@ final class OnboardingCoordinator: NSObject {
             width: frameInWindow.width,
             height: frameInWindow.height
         )
-        MenuBarFlightController.shared.fly(from: window.convertToScreen(flipped)) { [weak self] in
+        MenuBarFlightController.shared.fly(
+            from: window.convertToScreen(flipped),
+            // The page moves on while the icon is still travelling — waiting
+            // for it to touch down left a beat where nothing happened.
+            onNearlyLanded: didLand
+        ) { [weak self] in
             self?.restoreMenuBarIcon()
-            didLand()
         }
     }
 

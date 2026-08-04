@@ -37,14 +37,30 @@ final class MenuBarFlightController {
         panel = nil
     }
 
-    /// `source` is in screen coordinates. `completion` reveals the real item.
-    func fly(from source: NSRect, completion: @escaping () -> Void) {
+    /// The spring the icon travels on. Written out rather than taken from
+    /// `Motion.panelSpring` (which it matches) because the hand-off point is
+    /// a fraction of it and needs a number.
+    private static let travelDuration: TimeInterval = 0.35
+    private static let fadeInDuration: TimeInterval = 0.12
+    /// How far through the travel the flow is allowed to move on. Waiting for
+    /// the full landing read as a stall — by here the icon is clearly on its
+    /// way and the next page can start coming in behind it.
+    private static let handoffPoint: TimeInterval = 0.45
+
+    /// `source` is in screen coordinates. `onNearlyLanded` is the flow's cue
+    /// to carry on, fired partway through; `completion` reveals the real item
+    /// and runs only when the icon has actually arrived.
+    func fly(from source: NSRect, onNearlyLanded: @escaping () -> Void = {}, completion: @escaping () -> Void) {
         // Reduce Motion: no flight at all, the item simply appears. Flying an
         // icon across the screen is the one thing this feature *is*, so
         // there's no reduced version of it worth showing.
-        guard !Motion.reduceMotion else { return completion() }
+        guard !Motion.reduceMotion else {
+            onNearlyLanded()
+            return completion()
+        }
 
         guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(source) }) ?? NSScreen.main else {
+            onNearlyLanded()
             return completion()
         }
         let slot = MenuBarPresence.shared.iconFrame ?? Self.fallbackTarget(on: screen)
@@ -85,16 +101,28 @@ final class MenuBarFlightController {
 
         // Fade in where the label's icon was, so it reads as that icon
         // lifting off rather than a new one appearing.
-        NSAnimationContext.animate(.easeOut(duration: 0.12)) {
+        NSAnimationContext.animate(.easeOut(duration: Self.fadeInDuration)) {
             panel.animator().alphaValue = 1
         } completion: { [weak self] in
             guard self?.currentFlight == flight else { return }
-            self?.travel(panel, to: target, flight: flight, completion: completion)
+            self?.travel(panel, to: target, flight: flight, onNearlyLanded: onNearlyLanded, completion: completion)
         }
     }
 
-    private func travel(_ panel: NSPanel, to target: NSRect, flight: UUID, completion: @escaping () -> Void) {
-        NSAnimationContext.animate(Motion.panelSpring) {
+    private func travel(
+        _ panel: NSPanel,
+        to target: NSRect,
+        flight: UUID,
+        onNearlyLanded: @escaping () -> Void,
+        completion: @escaping () -> Void
+    ) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.travelDuration * Self.handoffPoint))
+            guard self?.currentFlight == flight else { return }
+            onNearlyLanded()
+        }
+
+        NSAnimationContext.animate(.smooth(duration: Self.travelDuration)) {
             panel.animator().setFrame(target, display: true)
         } completion: { [weak self] in
             guard self?.currentFlight == flight else { return }
