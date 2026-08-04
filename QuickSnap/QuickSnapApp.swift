@@ -107,7 +107,7 @@ struct QuickSnapApp: App {
             // slot (and therefore its window, which is how the onboarding
             // flight finds where to land) while drawing no icon.
             if menuBar.showsIcon {
-                Image(systemName: "camera.viewfinder")
+                Image(nsImage: MenuBarPresence.iconImage())
                     .accessibilityLabel("QuickSnap")
             } else {
                 Image(nsImage: NSImage(size: NSSize(width: 18, height: 18)))

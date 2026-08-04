@@ -56,7 +56,7 @@ final class MenuBarFlightController {
         panel.collectionBehavior = [.stationary, .ignoresCycle, .fullScreenAuxiliary]
 
         let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: nil)
+        icon.image = MenuBarPresence.iconImage()
         icon.contentTintColor = .labelColor
         icon.imageScaling = .scaleProportionallyUpOrDown
         panel.contentView = icon
@@ -86,23 +86,23 @@ final class MenuBarFlightController {
         }
     }
 
-    /// The glyph inside the item's slot, not the slot itself.
+    /// Where the flown icon comes to rest: the drawn image's own size,
+    /// centred in the item's slot.
     ///
-    /// The status item's *window* is much bigger than what it draws —
-    /// measured 34 × 33 pt for an icon of roughly half that — so landing on
-    /// that frame puts an oversized icon on the menu bar and the swap to the
-    /// real one is visible. `iconScale` is the one number to tune if the
-    /// hand-off still shows.
-    private static let iconScale: CGFloat = 0.52
-
+    /// Not the slot itself — that's the status item's *window*, measured
+    /// 34 × 33 pt around a much smaller glyph, and landing on it dropped an
+    /// oversized icon on the menu bar. Taking the size from the same image
+    /// the item draws means there's no scale factor to keep in step, and the
+    /// rect is rounded to whole pixels so the two can't land half a point
+    /// apart.
     private static func landingRect(in slot: NSRect) -> NSRect {
-        let side = min(max(slot.height * iconScale, 14), 22)
+        let size = MenuBarPresence.iconImage().size
         return NSRect(
-            x: slot.midX - side / 2,
-            y: slot.midY - side / 2,
-            width: side,
-            height: side
-        )
+            x: slot.midX - size.width / 2,
+            y: slot.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        ).integral
     }
 
     /// Used when the status item's window can't be found: the trailing end of

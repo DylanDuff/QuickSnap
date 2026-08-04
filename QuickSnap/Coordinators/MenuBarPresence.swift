@@ -30,6 +30,21 @@ final class MenuBarPresence: nonisolated ObservableObject {
 
     private init() {}
 
+    /// Point size the item's symbol is drawn at. A touch larger than the
+    /// system default, which rendered small enough that the icon arriving
+    /// from onboarding had to shrink to meet it.
+    static let iconPointSize: CGFloat = 18
+
+    /// The item's icon — and the very same image the onboarding flight
+    /// carries, so the two can't drift apart in size or weight and the
+    /// hand-off has nothing to give away.
+    static func iconImage() -> NSImage {
+        let image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "QuickSnap")?
+            .withSymbolConfiguration(.init(pointSize: iconPointSize, weight: .regular))
+        image?.isTemplate = true
+        return image ?? NSImage()
+    }
+
     /// Where the item is, in screen coordinates.
     ///
     /// Found by enumerating the app's own windows for the status bar one.
