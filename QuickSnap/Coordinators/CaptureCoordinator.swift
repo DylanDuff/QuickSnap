@@ -73,6 +73,12 @@ final class CaptureCoordinator: ObservableObject {
         hotkeyCoordinator.start()
         mcpCoordinator.host = self
         mcpCoordinator.startIfEnabled()
+        // Before anything else user-facing: on a first run this is the
+        // app's whole first impression, and it's where the Screen
+        // Recording prompt and the save folder's TCC prompt are meant to
+        // be answered — not mid-capture, under a full-screen overlay.
+        OnboardingRenderProbe.runIfEnabled()
+        OnboardingCoordinator.shared.showIfFirstRun()
         UndoProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         FreeZoomProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         Task {

@@ -115,6 +115,7 @@ nonisolated enum AppSettings {
         static let markupShowsRedactionButton = "markupShowsRedactionButton"
         static let markupToolbarLayout = "markupToolbarLayout"
         static let markupClosesAfterSave = "markupClosesAfterSave"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
         // Uploading — provider-neutral settings…
         static let uploadingEnabled = "uploadingEnabled"
         static let uploadProvider = "uploadProvider"
@@ -195,6 +196,10 @@ nonisolated enum AppSettings {
         /// it, so leaving the window up makes the user close it by hand every
         /// time. Save As… counts too — same finishing move, different file.
         static let markupClosesAfterSave = true
+        /// False until the flow has been through to the end (or skipped),
+        /// which is what makes it a *first-run* flow rather than something
+        /// that reappears.
+        static let hasCompletedOnboarding = false
         static let uploadingEnabled = false
         static let uploadProvider = UploadProvider.immich
         static let uploadAfterCapture = false
@@ -434,6 +439,14 @@ nonisolated enum AppSettings {
         return min(max(stored ?? Defaults.markupDefaultStrokeStep, 0), markupStrokeStepCount - 1)
     }
 
+    /// Whether the first-run flow has been completed or skipped. Cleared by
+    /// `resetAll`, so "Reset All Settings" genuinely returns the app to how it
+    /// arrived — including the setup it walked you through.
+    static var hasCompletedOnboarding: Bool {
+        get { bool(forKey: Keys.hasCompletedOnboarding, default: Defaults.hasCompletedOnboarding) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.hasCompletedOnboarding) }
+    }
+
     /// Whether an annotation window closes itself once a save has actually
     /// landed on disk. Read at save time, so a change applies to windows that
     /// are already open.
@@ -635,6 +648,7 @@ nonisolated enum AppSettings {
             Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
             Keys.markupShowsUploadButton, Keys.markupShowsRedactionButton,
             Keys.markupToolbarLayout, Keys.markupClosesAfterSave,
+            Keys.hasCompletedOnboarding,
             Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
             Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
             Keys.checkUploadsForSensitiveContent,

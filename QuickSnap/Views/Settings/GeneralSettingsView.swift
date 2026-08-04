@@ -94,6 +94,17 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            // TEMPORARY — for testing the first-run flow. Remove this
+            // section (and nothing else) once onboarding has been signed off;
+            // `OnboardingCoordinator.replay()` exists only for it.
+            Section("Setup") {
+                LabeledContent("First-run setup") {
+                    Button("Show Again…") {
+                        OnboardingCoordinator.shared.replay()
+                    }
+                }
+            }
+
             Section("Screenshots") {
                 LabeledContent("Save to") {
                     HStack(spacing: 8) {
