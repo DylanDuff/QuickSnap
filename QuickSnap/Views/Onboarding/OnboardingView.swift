@@ -158,31 +158,96 @@ struct OnboardingView: View {
 /// Shared layout for a step: an icon, a title, a line of explanation, and
 /// whatever the step is actually asking for. Kept here rather than in its own
 /// file — it exists only for these six screens.
+///
+/// Arriving on a step draws its symbol on, then fades the text and controls
+/// up beneath it in order. Each step view is rebuilt when the step changes,
+/// so the `@State` resets and the sequence replays on every page.
 struct OnboardingStepLayout<Content: View>: View {
     let systemImage: String
     let title: String
     let message: String
     @ViewBuilder var content: Content
 
+    @State private var isRevealed = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 30, weight: .light))
-                    .foregroundStyle(Color.accentColor)
-
+                icon
                 Text(title)
                     .font(.system(size: 22, weight: .semibold))
+                    .onboardingReveal(0, isRevealed: isRevealed, reduceMotion: reduceMotion)
 
                 Text(message)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .onboardingReveal(1, isRevealed: isRevealed, reduceMotion: reduceMotion)
             }
 
             content
+                .onboardingReveal(2, isRevealed: isRevealed, reduceMotion: reduceMotion)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .task { await OnboardingReveal.begin { isRevealed = true } }
+    }
+
+    /// `.drawOn` is a *transition*, so the symbol has to be inserted for it
+    /// to draw — `symbolEffect(.drawOn, isActive:)` compiles (the effect also
+    /// conforms to `IndefiniteSymbolEffect`) but gives a repeating animation
+    /// instead of the one-shot draw. The clear rectangle underneath reserves
+    /// the space so nothing below shifts as it appears.
+    private var icon: some View {
+        ZStack(alignment: .leading) {
+            Color.clear.frame(height: 34)
+            // The two transitions can't share a ternary: `.symbolEffect` is a
+            // `SymbolEffectTransition`, and putting it opposite `.opacity`
+            // erases both to `AnyTransition`, which has no such member.
+            if reduceMotion {
+                iconImage.transition(.opacity)
+            } else if isRevealed {
+                iconImage.transition(.symbolEffect(.drawOn))
+            }
+        }
+    }
+
+    private var iconImage: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 30, weight: .light))
+            .foregroundStyle(Color.accentColor)
+    }
+}
+
+/// The staggered entrance shared by the step layout and the welcome screen.
+@MainActor
+enum OnboardingReveal {
+    /// Deferred by a beat, and animated: flipping the flag inside the same
+    /// update that first shows the view gives SwiftUI no "before" state to
+    /// animate from, so the symbol would simply appear instead of drawing.
+    static func begin(_ reveal: @escaping () -> Void) async {
+        try? await Task.sleep(for: .milliseconds(60))
+        withAnimation(.smooth(duration: 0.5)) { reveal() }
+    }
+
+    static let stagger: TimeInterval = 0.09
+    static let leadIn: TimeInterval = 0.16
+}
+
+extension View {
+    /// Fades a piece of a step in, `index` places later than the one before
+    /// it. Reduce Motion keeps the fade but drops the rise and the stagger —
+    /// content still arrives, it just doesn't travel.
+    func onboardingReveal(_ index: Int, isRevealed: Bool, reduceMotion: Bool) -> some View {
+        opacity(isRevealed ? 1 : 0)
+            .offset(y: isRevealed || reduceMotion ? 0 : 8)
+            .animation(
+                reduceMotion
+                    ? .easeOut(duration: 0.18)
+                    : .smooth(duration: 0.42)
+                        .delay(OnboardingReveal.leadIn + Double(index) * OnboardingReveal.stagger),
+                value: isRevealed
+            )
     }
 }
 
