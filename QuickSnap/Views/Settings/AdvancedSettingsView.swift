@@ -126,6 +126,16 @@ struct AdvancedSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Setup") {
+                Button("Show Setup Again…") {
+                    OnboardingCoordinator.shared.replay()
+                }
+
+                Text("Runs the first-run setup again: screen recording access, where screenshots are saved, shortcuts, and the markup toolbar. Nothing is reset by opening it.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Reset") {
                 Button("Reset All Settings…", role: .destructive) {
                     isConfirmingReset = true
