@@ -78,6 +78,7 @@ final class CaptureCoordinator: ObservableObject {
         // Recording prompt and the save folder's TCC prompt are meant to
         // be answered — not mid-capture, under a full-screen overlay.
         OnboardingRenderProbe.runIfEnabled()
+        OnboardingRenderProbe.inspectWindowIfEnabled()
         OnboardingCoordinator.shared.showIfFirstRun()
         UndoProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         FreeZoomProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)

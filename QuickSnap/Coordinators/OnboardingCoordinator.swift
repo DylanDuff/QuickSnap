@@ -62,7 +62,17 @@ final class OnboardingCoordinator: NSObject {
         let hostingView = NSHostingView(
             rootView: OnboardingView(onFinish: { [weak self] in self?.finish() })
         )
+        // **Must be empty.** `NSHostingView` otherwise pushes SwiftUI's
+        // computed min/max size onto the window as `contentMinSize` — and it
+        // computes the minimum by laying the content out at its narrowest,
+        // where every `Text(…).fixedSize(horizontal: false, vertical: true)`
+        // wraps into a column and grows without bound. Measured: a minimum of
+        // 156 × 3380 pt, which opened the window taller than the display with
+        // the content off-screen. The flow is a fixed-size window; its size is
+        // ours to set.
+        hostingView.sizingOptions = []
         window.contentView = hostingView
+        window.setContentSize(Self.contentSize)
         // Same recipe as the annotation window: `.fullSizeContentView` alone
         // still leaves NSHostingView reporting a title-bar safe-area inset to
         // its SwiftUI content, and this has to be set *after* the view is in

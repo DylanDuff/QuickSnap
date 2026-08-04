@@ -30,6 +30,32 @@ enum OnboardingRenderProbe {
     /// Window content size, minus the footer the steps don't draw.
     private static let stepSize = CGSize(width: 620, height: 560)
 
+    /// Opens the real window and reports what actually decided its size —
+    /// the window's own frame, the constraints an `NSHostingView` may have
+    /// pushed onto it, and what SwiftUI thinks the content wants.
+    static func inspectWindowIfEnabled() {
+        guard ProcessInfo.processInfo.environment["QUICKSNAP_ONBOARDING_WINDOW"] == "1" else { return }
+        Task {
+            OnboardingCoordinator.shared.show()
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let window = NSApp.windows.first(where: { $0.title == "Welcome to QuickSnap" }) else {
+                print("[onboarding-window] no window found")
+                return NSApp.terminate(nil)
+            }
+            let screen = window.screen ?? NSScreen.main
+            print("[onboarding-window] frame=\(window.frame)")
+            print("[onboarding-window] contentRect=\(window.contentRect(forFrameRect: window.frame))")
+            print("[onboarding-window] contentMinSize=\(window.contentMinSize) contentMaxSize=\(window.contentMaxSize)")
+            print("[onboarding-window] screen visibleFrame=\(screen?.visibleFrame ?? .zero)")
+            if let hosting = window.contentView as? NSView {
+                print("[onboarding-window] contentView=\(type(of: hosting)) bounds=\(hosting.bounds)")
+                print("[onboarding-window] fittingSize=\(hosting.fittingSize) intrinsic=\(hosting.intrinsicContentSize)")
+            }
+            fflush(stdout)
+            NSApp.terminate(nil)
+        }
+    }
+
     static func runIfEnabled() {
         guard let directory = outputDirectory else { return }
         Task {
