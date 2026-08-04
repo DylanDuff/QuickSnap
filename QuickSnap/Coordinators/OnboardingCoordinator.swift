@@ -72,8 +72,8 @@ final class OnboardingCoordinator: NSObject {
         let hostingView = NSHostingView(
             rootView: OnboardingView(
                 onFinish: { [weak self] in self?.finish() },
-                onSendIconToMenuBar: { [weak self] frameInWindow in
-                    self?.sendIconToMenuBar(from: frameInWindow)
+                onSendIconToMenuBar: { [weak self] frameInWindow, didLand in
+                    self?.sendIconToMenuBar(from: frameInWindow, then: didLand)
                 },
                 onReturnToWelcome: {
                     MenuBarFlightController.shared.cancel()
@@ -131,8 +131,11 @@ final class OnboardingCoordinator: NSObject {
 
     /// Flies the icon from where it sits in the window up to the menu bar,
     /// revealing the real item as it lands.
-    private func sendIconToMenuBar(from frameInWindow: CGRect) {
-        guard let window else { return restoreMenuBarIcon() }
+    private func sendIconToMenuBar(from frameInWindow: CGRect, then didLand: @escaping () -> Void) {
+        guard let window else {
+            restoreMenuBarIcon()
+            return didLand()
+        }
         // SwiftUI's `.global` frame is in the window's space, top-left
         // origin; screen coordinates are bottom-left.
         let flipped = NSRect(
@@ -143,12 +146,14 @@ final class OnboardingCoordinator: NSObject {
         )
         MenuBarFlightController.shared.fly(from: window.convertToScreen(flipped)) { [weak self] in
             self?.restoreMenuBarIcon()
+            didLand()
         }
     }
 
     /// Idempotent, and called from every exit: a menu bar app whose icon
     /// never comes back is an app the user can't reach.
     private func restoreMenuBarIcon() {
+        MenuBarFlightController.shared.cancel()
         MenuBarPresence.shared.showsIcon = true
     }
 

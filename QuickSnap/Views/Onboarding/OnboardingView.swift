@@ -21,7 +21,9 @@ struct OnboardingView: View {
     /// Sends the menu bar icon on its way, given where it currently is in
     /// window coordinates. The coordinator owns this because the window is
     /// what turns those into screen coordinates.
-    var onSendIconToMenuBar: ((CGRect) -> Void)?
+    /// Called with where the icon is now, and what to do once it has
+    /// landed — the flow waits for that rather than moving on underneath it.
+    var onSendIconToMenuBar: ((CGRect, @escaping () -> Void) -> Void)?
     /// Puts things back as they were on the welcome screen: the menu bar
     /// icon hidden again, ready to be sent up a second time.
     var onReturnToWelcome: (() -> Void)?
@@ -33,10 +35,13 @@ struct OnboardingView: View {
 
     @State private var menuBarIconFrame: CGRect = .zero
     @State private var isIconInFlight = false
+    /// True only between launching the icon and it arriving, so Continue
+    /// can't be pressed twice and land two steps on.
+    @State private var isWaitingForFlight = false
 
     init(
         onFinish: @escaping () -> Void,
-        onSendIconToMenuBar: ((CGRect) -> Void)? = nil,
+        onSendIconToMenuBar: ((CGRect, @escaping () -> Void) -> Void)? = nil,
         onReturnToWelcome: (() -> Void)? = nil,
         initialStep: Step = .welcome
     ) {
@@ -181,16 +186,26 @@ struct OnboardingView: View {
     }
 
     private func goForward() {
+        guard !isWaitingForFlight else { return }
         guard let next = Step(rawValue: step.rawValue + 1) else {
             onFinish()
             return
         }
         // Leaving the welcome step is when the icon goes to the menu bar —
         // it reads as "here's where I'll be" on the way out, rather than
-        // something happening while the page is still being read.
+        // something happening while the page is still being read. The page
+        // itself waits for it: changing step underneath would pull the row
+        // the icon just left out from under the animation, and the whole
+        // point is watching where it goes. Reduce Motion reports back
+        // immediately, so this costs nothing there.
         if step == .welcome, menuBarIconFrame != .zero, let onSendIconToMenuBar {
             isIconInFlight = true
-            onSendIconToMenuBar(menuBarIconFrame)
+            isWaitingForFlight = true
+            onSendIconToMenuBar(menuBarIconFrame) {
+                isWaitingForFlight = false
+                withAnimation(reduceMotion ? nil : Motion.revealSpring) { step = next }
+            }
+            return
         }
         withAnimation(reduceMotion ? nil : Motion.revealSpring) { step = next }
     }
@@ -203,6 +218,7 @@ struct OnboardingView: View {
         // purpose — a reverse flight would be a second thing to watch on the
         // way to somewhere the user has already been.
         if previous == .welcome {
+            isWaitingForFlight = false
             onReturnToWelcome?()
             var transaction = Transaction()
             transaction.disablesAnimations = true

@@ -19,7 +19,7 @@ struct OnboardingToolbarStep: View {
         OnboardingStepLayout(
             systemImage: "pencil.and.outline",
             title: "Your markup tools",
-            message: "Double-click a screenshot's preview to mark it up. Below are your available tools."
+            message: "Double-click a screenshot's preview to mark it up.\nBelow are your available tools."
         ) {
             MarkupToolbarEditor()
         }

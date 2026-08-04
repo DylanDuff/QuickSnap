@@ -30,7 +30,7 @@ struct OnboardingPermissionStep: View {
         OnboardingStepLayout(
             systemImage: "record.circle",
             title: "Allow screen recording",
-            message: "macOS asks every app for permission before it can see your screen. QuickSnap can't capture anything until you allow it."
+            message: "macOS asks every app for permission before it can see your screen.\nQuickSnap can't capture anything until you allow it."
         ) {
             VStack(alignment: .leading, spacing: 14) {
                 statusRow
