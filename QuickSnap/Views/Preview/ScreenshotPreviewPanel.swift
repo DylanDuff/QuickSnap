@@ -21,6 +21,12 @@ final class ScreenshotPreviewPanel: NSPanel {
     /// actively repositioning, resizing, or clicking an action on it.
     var onInteractionBegan: (() -> Void)?
 
+    /// Fired on a double-click anywhere in the panel. Detected here rather
+    /// than with a SwiftUI gesture because the panel is
+    /// `isMovableByWindowBackground`: AppKit claims mouse-downs the content
+    /// doesn't take, so a tap gesture on the thumbnail never sees them.
+    var onDoubleClick: (() -> Void)?
+
     let dragState = PreviewDragState()
 
     private var mouseDownMonitor: Any?
@@ -83,6 +89,9 @@ final class ScreenshotPreviewPanel: NSPanel {
             guard let self, event.window === self else { return event }
             onInteractionBegan?()
             isMouseDown = true
+            if event.clickCount == 2 {
+                onDoubleClick?()
+            }
             return event
         }
         mouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in

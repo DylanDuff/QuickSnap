@@ -120,6 +120,15 @@ final class ScreenshotPreviewController {
         }
 
         let newPanel = ScreenshotPreviewPanel(contentRect: startFrame)
+        // Both ways in go through here. A double-click on the Edit button
+        // itself fires the button *and* the double-click, which would
+        // otherwise open two annotation windows on one capture.
+        let beginEdit: () -> Void = { [weak self] in
+            guard let self, allowEditRequest() else { return }
+            cancelAutoDismiss()
+            onEdit(image, file)
+            dismiss()
+        }
         newPanel.contentView = NSHostingView(rootView: ScreenshotPreviewView(
             image: nsImage,
             file: file,
@@ -135,11 +144,7 @@ final class ScreenshotPreviewController {
                 self?.cancelAutoDismiss()
                 ScreenshotSaver.copyToClipboard(image)
             },
-            onEdit: { [weak self] in
-                self?.cancelAutoDismiss()
-                onEdit(image, file)
-                self?.dismiss()
-            },
+            onEdit: beginEdit,
             onUpload: onUpload.map { upload in
                 { [weak self] in
                     self?.cancelAutoDismiss()
@@ -163,6 +168,12 @@ final class ScreenshotPreviewController {
         newPanel.contentAspectRatio = size
         newPanel.contentMinSize = Self.minimumPanelSize(matching: size, minimum: minContentSize)
         newPanel.contentMaxSize = Self.sizeForLongSide(Self.maxLongSide, matching: size)
+        // Read at click time, not here, so switching the setting off applies
+        // to a panel that's already on screen.
+        newPanel.onDoubleClick = {
+            guard AppSettings.previewDoubleClickOpensMarkup else { return }
+            beginEdit()
+        }
         newPanel.onInteractionBegan = { [weak self] in
             guard let self else { return }
             hasInteracted = true
@@ -178,6 +189,17 @@ final class ScreenshotPreviewController {
         }
 
         scheduleDismiss()
+    }
+
+    /// Debounces the two routes into markup against each other — see
+    /// `beginEdit`.
+    private var lastEditRequest: Date?
+
+    private func allowEditRequest() -> Bool {
+        let now = Date()
+        if let lastEditRequest, now.timeIntervalSince(lastEditRequest) < 0.7 { return false }
+        lastEditRequest = now
+        return true
     }
 
     private func cancelAutoDismiss() {

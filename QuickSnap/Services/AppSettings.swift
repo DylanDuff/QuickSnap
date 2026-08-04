@@ -116,6 +116,7 @@ nonisolated enum AppSettings {
         static let markupToolbarLayout = "markupToolbarLayout"
         static let markupClosesAfterSave = "markupClosesAfterSave"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        static let previewDoubleClickOpensMarkup = "previewDoubleClickOpensMarkup"
         // Uploading — provider-neutral settings…
         static let uploadingEnabled = "uploadingEnabled"
         static let uploadProvider = "uploadProvider"
@@ -200,6 +201,9 @@ nonisolated enum AppSettings {
         /// which is what makes it a *first-run* flow rather than something
         /// that reappears.
         static let hasCompletedOnboarding = false
+        /// On: the preview is a picture of the capture, and double-clicking a
+        /// picture to open it is what every other app on the machine does.
+        static let previewDoubleClickOpensMarkup = true
         static let uploadingEnabled = false
         static let uploadProvider = UploadProvider.immich
         static let uploadAfterCapture = false
@@ -447,6 +451,13 @@ nonisolated enum AppSettings {
         set { UserDefaults.standard.set(newValue, forKey: Keys.hasCompletedOnboarding) }
     }
 
+    /// Whether double-clicking the post-capture preview opens it for markup.
+    /// Read at the moment of the click, so a change applies to a panel that's
+    /// already on screen.
+    static var previewDoubleClickOpensMarkup: Bool {
+        bool(forKey: Keys.previewDoubleClickOpensMarkup, default: Defaults.previewDoubleClickOpensMarkup)
+    }
+
     /// Whether an annotation window closes itself once a save has actually
     /// landed on disk. Read at save time, so a change applies to windows that
     /// are already open.
@@ -648,7 +659,7 @@ nonisolated enum AppSettings {
             Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
             Keys.markupShowsUploadButton, Keys.markupShowsRedactionButton,
             Keys.markupToolbarLayout, Keys.markupClosesAfterSave,
-            Keys.hasCompletedOnboarding,
+            Keys.hasCompletedOnboarding, Keys.previewDoubleClickOpensMarkup,
             Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
             Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
             Keys.checkUploadsForSensitiveContent,

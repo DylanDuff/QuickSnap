@@ -123,7 +123,9 @@ struct OnboardingView: View {
             }
 
             Button(step.isLast ? "Done" : "Continue", action: goForward)
-                .buttonStyle(.glassProminent)
+                // `.glass` rather than `.glassProminent`: translucent over
+                // the underglow instead of a coloured slab on top of it.
+                .buttonStyle(.glass)
                 .controlSize(.extraLarge)
                 .keyboardShortcut(.defaultAction)
         }

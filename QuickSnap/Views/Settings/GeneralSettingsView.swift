@@ -35,6 +35,8 @@ struct GeneralSettingsView: View {
     @AppStorage(AppSettings.Keys.copyAfterCapture)
     private var copiesToClipboard = AppSettings.Defaults.copyAfterCapture
 
+    @AppStorage(AppSettings.Keys.previewDoubleClickOpensMarkup)
+    private var doubleClickOpensMarkup = AppSettings.Defaults.previewDoubleClickOpensMarkup
     @AppStorage(AppSettings.Keys.saveAfterCapture)
     private var savesToDisk = AppSettings.Defaults.saveAfterCapture
 
@@ -192,6 +194,10 @@ struct GeneralSettingsView: View {
                         Toggle("Save", isOn: $savesToDisk)
                     }
                     .toggleStyle(.checkbox)
+                }
+
+                if showsPreview {
+                    Toggle("Double-click the preview to mark it up", isOn: $doubleClickOpensMarkup)
                 }
 
                 if !showsPreview && !copiesToClipboard && !savesToDisk {
