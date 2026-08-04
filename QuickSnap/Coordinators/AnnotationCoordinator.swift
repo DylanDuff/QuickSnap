@@ -315,6 +315,7 @@ final class AnnotationCoordinator: NSObject {
                         on: screen
                     )
                 }
+                closeAfterSaveIfEnabled(window)
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Couldn't Save Annotated Screenshot"
@@ -345,7 +346,7 @@ final class AnnotationCoordinator: NSObject {
         panel.allowedContentTypes = ImageFormat.allCases.map(\.contentType)
         panel.directoryURL = ScreenshotSaver.saveDirectory
         panel.nameFieldStringValue = Self.annotatedName(forOriginal: originalFileURL)
-        panel.beginSheetModal(for: window) { response in
+        panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             Task {
                 do {
@@ -354,6 +355,7 @@ final class AnnotationCoordinator: NSObject {
                     try await Task.detached(priority: .userInitiated) {
                         try ScreenshotSaver.write(image, to: url)
                     }.value
+                    self?.closeAfterSaveIfEnabled(window)
                 } catch {
                     let alert = NSAlert()
                     alert.messageText = "Couldn't Save Annotated Screenshot"
@@ -362,6 +364,21 @@ final class AnnotationCoordinator: NSObject {
                 }
             }
         }
+    }
+
+    /// Closes the window a save came from, if the user has left that setting
+    /// on. Called only once the write has actually succeeded — a failed save
+    /// keeps the window (and the work in it) around, and a cancelled Save As…
+    /// never gets here at all.
+    ///
+    /// The setting is read here, at save time, rather than captured when the
+    /// window opened, so changing it applies to windows already on screen.
+    /// `close()` runs the same teardown path as the close button
+    /// (`windowWillClose` drops the toolbar pill and reverts the activation
+    /// policy), so there's nothing extra to unwind.
+    private func closeAfterSaveIfEnabled(_ window: NSWindow) {
+        guard AppSettings.markupClosesAfterSave, windows[window] != nil else { return }
+        window.close()
     }
 
     /// Minimum window content width. The pill is its own window now, so this

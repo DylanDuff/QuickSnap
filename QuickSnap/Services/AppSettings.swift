@@ -114,6 +114,7 @@ nonisolated enum AppSettings {
         static let markupShowsUploadButton = "markupShowsUploadButton"
         static let markupShowsRedactionButton = "markupShowsRedactionButton"
         static let markupToolbarLayout = "markupToolbarLayout"
+        static let markupClosesAfterSave = "markupClosesAfterSave"
         // Uploading — provider-neutral settings…
         static let uploadingEnabled = "uploadingEnabled"
         static let uploadProvider = "uploadProvider"
@@ -190,6 +191,10 @@ nonisolated enum AppSettings {
         static let markupShowsDragButton = false
         static let markupShowsUploadButton = false
         static let markupShowsRedactionButton = true
+        /// On: saving is the end of the edit, and the toast already confirms
+        /// it, so leaving the window up makes the user close it by hand every
+        /// time. Save As… counts too — same finishing move, different file.
+        static let markupClosesAfterSave = true
         static let uploadingEnabled = false
         static let uploadProvider = UploadProvider.immich
         static let uploadAfterCapture = false
@@ -429,6 +434,13 @@ nonisolated enum AppSettings {
         return min(max(stored ?? Defaults.markupDefaultStrokeStep, 0), markupStrokeStepCount - 1)
     }
 
+    /// Whether an annotation window closes itself once a save has actually
+    /// landed on disk. Read at save time, so a change applies to windows that
+    /// are already open.
+    static var markupClosesAfterSave: Bool {
+        bool(forKey: Keys.markupClosesAfterSave, default: Defaults.markupClosesAfterSave)
+    }
+
     // MARK: - Uploading
 
     static var uploadProvider: UploadProvider {
@@ -622,7 +634,7 @@ nonisolated enum AppSettings {
             Keys.markupShowsCopyButton, Keys.markupShowsSaveButton,
             Keys.markupShowsSaveAsButton, Keys.markupShowsDragButton,
             Keys.markupShowsUploadButton, Keys.markupShowsRedactionButton,
-            Keys.markupToolbarLayout,
+            Keys.markupToolbarLayout, Keys.markupClosesAfterSave,
             Keys.uploadingEnabled, Keys.uploadProvider, Keys.uploadAfterCapture,
             Keys.uploadCopiesLink, Keys.uploadShowsPreviewButton,
             Keys.checkUploadsForSensitiveContent,

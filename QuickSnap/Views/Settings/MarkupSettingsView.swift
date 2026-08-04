@@ -16,6 +16,9 @@ struct MarkupSettingsView: View {
     @AppStorage(AppSettings.Keys.markupDefaultStrokeStep)
     private var defaultStrokeStep = AppSettings.Defaults.markupDefaultStrokeStep
 
+    @AppStorage(AppSettings.Keys.markupClosesAfterSave)
+    private var closesAfterSave = AppSettings.Defaults.markupClosesAfterSave
+
     var body: some View {
         Form {
             Section("Defaults") {
@@ -42,6 +45,14 @@ struct MarkupSettingsView: View {
                 }
 
                 Text("Sizes scale with each screenshot, so your strokes look the same whether you capture a small window or a whole screen.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("After saving") {
+                Toggle("Close the editor", isOn: $closesAfterSave)
+
+                Text("Saving finishes the edit, so the window gets out of your way. Your original screenshot is never overwritten either way.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
