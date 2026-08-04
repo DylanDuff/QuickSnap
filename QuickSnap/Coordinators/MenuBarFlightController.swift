@@ -46,6 +46,11 @@ final class MenuBarFlightController {
     /// the full landing read as a stall — by here the icon is clearly on its
     /// way and the next page can start coming in behind it.
     private static let handoffPoint: TimeInterval = 0.45
+    /// How far along the icon changes from the page's ink to the menu bar's.
+    /// Late enough to still read against the page it left, early enough to
+    /// have become the menu bar's icon before it arrives.
+    private static let inversionPoint: TimeInterval = 0.6
+    private static let inversionDuration: TimeInterval = 0.16
 
     /// `source` is in screen coordinates. `onNearlyLanded` is the flow's cue
     /// to carry on, fired partway through; `completion` reveals the real item
@@ -83,16 +88,19 @@ final class MenuBarFlightController {
         panel.level = .statusBar
         panel.collectionBehavior = [.stationary, .ignoresCycle, .fullScreenAuxiliary]
 
-        let icon = NSImageView()
-        icon.image = MenuBarPresence.iconImage()
-        icon.contentTintColor = .labelColor
-        // Proportional, never `.scaleAxesIndependently`: the image isn't the
-        // same aspect as the rect it lands in, so filling it stretches the
-        // glyph for the whole flight. Fitting matches what the menu bar does
-        // with the same image anyway — SwiftUI fits it into an 18 × 18
-        // rendering, so fitting into the same rect lands on the same pixels.
-        icon.imageScaling = .scaleProportionallyUpOrDown
-        panel.contentView = icon
+        // Two copies of the icon, one in each colour, cross-faded partway
+        // along. In light appearance the icon has to be dark to read against
+        // the page it starts on and light to match the menu bar it lands in
+        // — one tint can't do both, and switching it at the end would show.
+        // In dark appearance the page's ink and the menu bar's already
+        // agree, so the second copy simply never fades in.
+        let container = NSView(frame: NSRect(origin: .zero, size: source.size))
+        let pageIcon = Self.iconView(tinted: .labelColor, in: container.bounds)
+        let menuBarIcon = Self.iconView(tinted: .white, in: container.bounds)
+        menuBarIcon.alphaValue = 0
+        container.addSubview(pageIcon)
+        container.addSubview(menuBarIcon)
+        panel.contentView = container
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         self.panel = panel
@@ -109,6 +117,21 @@ final class MenuBarFlightController {
         }
     }
 
+    /// Both copies fill the panel and follow it as it resizes.
+    private static func iconView(tinted color: NSColor, in bounds: NSRect) -> NSImageView {
+        let view = NSImageView(frame: bounds)
+        view.image = MenuBarPresence.iconImage()
+        view.contentTintColor = color
+        // Proportional, never `.scaleAxesIndependently`: the image isn't the
+        // same aspect as the rect it lands in, so filling it stretches the
+        // glyph for the whole flight. Fitting matches what the menu bar does
+        // with the same image anyway — SwiftUI fits it into an 18 × 18
+        // rendering, so fitting into the same rect lands on the same pixels.
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.autoresizingMask = [.width, .height]
+        return view
+    }
+
     private func travel(
         _ panel: NSPanel,
         to target: NSRect,
@@ -120,6 +143,19 @@ final class MenuBarFlightController {
             try? await Task.sleep(for: .seconds(Self.travelDuration * Self.handoffPoint))
             guard self?.currentFlight == flight else { return }
             onNearlyLanded()
+        }
+
+        if NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua,
+            let container = panel.contentView,
+            container.subviews.count == 2 {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Self.travelDuration * Self.inversionPoint))
+                guard self?.currentFlight == flight else { return }
+                NSAnimationContext.animate(.easeInOut(duration: Self.inversionDuration)) {
+                    container.subviews[0].animator().alphaValue = 0
+                    container.subviews[1].animator().alphaValue = 1
+                }
+            }
         }
 
         NSAnimationContext.animate(.smooth(duration: Self.travelDuration)) {
