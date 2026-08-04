@@ -44,32 +44,53 @@ struct MarkupToolbarEditor: View {
 
     // MARK: - The pill
 
+    /// The capsule hugs its contents and sits centred in the full width,
+    /// exactly as the real toolbar does — the editor showing a full-width
+    /// bar while the live pill is only as wide as its items misrepresented
+    /// the thing being arranged.
+    ///
+    /// It still scrolls when it has to: a toolbar can hold more items than
+    /// the settings window is wide, and the real pill is a single row, so
+    /// wrapping would be a lie of a different kind. The inner `minWidth`
+    /// is what centres it — at less than the container's width the row is
+    /// exactly the container and the capsule sits in the middle of it;
+    /// past that the row grows and the scroll view takes over.
     private var pill: some View {
-        // Scrolls rather than squeezing: the real pill is one row, so
-        // wrapping here would misrepresent it, and a toolbar can hold more
-        // items than the settings window is wide even after the window was
-        // allowed to grow.
-        ScrollView(.horizontal) {
-            pillContents
-        }
-        .scrollIndicators(.never)
-        .padding(.horizontal, 10)
-        .frame(height: 48)
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .overlay(Capsule().strokeBorder(.separator, lineWidth: 1))
-        .overlay(alignment: .leading) {
-            if layout.items.isEmpty {
-                Text("Drag items here")
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 16)
-                    .allowsHitTesting(false)
+        GeometryReader { geometry in
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    capsule
+                }
+                .frame(minWidth: geometry.size.width)
             }
+            .scrollIndicators(.never)
         }
+        .frame(height: 50)
+    }
+
+    private var capsule: some View {
+        pillContents
+            .padding(.horizontal, 10)
+            .frame(height: 48)
+            .background(.quaternary.opacity(0.5), in: Capsule())
+            .overlay(Capsule().strokeBorder(.separator, lineWidth: 1))
+            // Grows and shrinks as items come and go, like the live pill's
+            // row swaps rather than a jump cut.
+            .animation(Motion.revealSpring, value: layout.items)
     }
 
     private var pillContents: some View {
         HStack(spacing: 0) {
+            // Inline rather than an overlay, so an empty toolbar's capsule is
+            // still wide enough to be a drop target.
+            if layout.items.isEmpty {
+                Text("Drag items here")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .padding(.leading, 6)
+                    .allowsHitTesting(false)
+            }
+
             ForEach(Array(layout.items.enumerated()), id: \.offset) { index, item in
                 insertionMarker(at: index)
                 chip(item, isPlaced: true)
