@@ -127,6 +127,40 @@ enum FreeZoomProbe {
         check("7: cropping doesn't resize the window", window.frame.size == frameBeforeCrop.size)
         log("   window=\(window.frame.size) canvas=\(canvas.canvasBounds.size) zoom=\(percent(canvas.zoom))")
 
+        // --- 8: would padding the canvas out restore panning below fit? ---
+        // The remote refuses to pan when the *content* is smaller than the
+        // viewport. If that's genuinely about content size, giving the
+        // markup bounds bigger than the image should restore panning — and
+        // decide whether a Figma-style free pan is worth the coordinate-space
+        // refactor it would cost.
+        canvas.setZoom(0.5, animated: false)
+        try? await Task.sleep(for: .seconds(1))
+        let imageBounds = canvas.canvasBounds
+        // Sized against the *viewport*, not the image: the centring rule is
+        // about content vs viewport, so the padded canvas has to comfortably
+        // exceed what's on screen for the test to mean anything.
+        let viewport = canvas.visibleCanvasFrame
+        let padded = CGRect(
+            x: imageBounds.midX - viewport.width,
+            y: imageBounds.midY - viewport.height,
+            width: viewport.width * 2,
+            height: viewport.height * 2
+        )
+        if var markup = viewController.markup {
+            markup.bounds = padded
+            viewController.markup = markup
+        }
+        try? await Task.sleep(for: .seconds(1))
+        let visible = canvas.visibleCanvasFrame
+        log("   padded bounds=\(padded.integral) viewport=\(visible.integral) (viewport \(visible.width < padded.width ? "fits inside" : "exceeds") the padded canvas)")
+
+        let panTarget = visible.offsetBy(dx: 300, dy: 0)
+        viewController.setContentVisibleFrame(panTarget, animated: false)
+        try? await Task.sleep(for: .seconds(1))
+        let afterPan = canvas.visibleCanvasFrame
+        check("8: padding the canvas restores panning below fit", abs(afterPan.minX - visible.minX) > 100)
+        log("   requested=\(panTarget.integral) observed=\(afterPan.integral)")
+
         finish()
     }
 
