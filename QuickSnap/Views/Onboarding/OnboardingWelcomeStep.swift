@@ -10,7 +10,7 @@ import SwiftUI
 /// so someone who closes this window and doesn't know to look in the menu
 /// bar has effectively lost the app.
 struct OnboardingWelcomeStep: View {
-    @State private var isRevealed = false
+    @State private var isRevealed = OnboardingReveal.startsRevealed
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -25,7 +25,7 @@ struct OnboardingWelcomeStep: View {
                 .resizable()
                 .frame(width: 84, height: 84)
                 .scaleEffect(isRevealed || reduceMotion ? 1 : 0.86)
-                .opacity(isRevealed ? 1 : 0)
+                .opacity(isRevealed || reduceMotion ? 1 : 0)
                 .animation(
                     reduceMotion ? .easeOut(duration: 0.18) : .smooth(duration: 0.5),
                     value: isRevealed

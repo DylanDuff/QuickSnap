@@ -55,7 +55,11 @@ struct OnboardingView: View {
             // since the block is centred, it reads as a slight downward
             // nudge rather than as a margin.
             .padding(.top, step == .welcome ? 0 : 28)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: step == .welcome ? .center : .top
+            )
 
             navigationButtons
                 .padding(.bottom, 18)
@@ -103,14 +107,25 @@ struct OnboardingView: View {
     /// — it's a way *out* of the flow rather than a way through it, so it
     /// sits in the top corner where it can't be mistaken for the next step.
     private var navigationButtons: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if step != .welcome {
+                // Deliberately no glass behind Back: two capsules of equal
+                // weight would give the page two equal answers. It matches
+                // the prominent button's type size and vertical padding
+                // instead, so the two sit on the same line and read as one
+                // control pair rather than a big button and a small link.
                 Button("Back", action: goBack)
                     .buttonStyle(.plain)
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .contentShape(Capsule())
             }
 
             Button(step.isLast ? "Done" : "Continue", action: goForward)
+                .buttonStyle(.glassProminent)
+                .controlSize(.extraLarge)
                 .keyboardShortcut(.defaultAction)
         }
         .frame(maxWidth: .infinity)
@@ -168,10 +183,15 @@ struct OnboardingStepLayout<Content: View>: View {
     let message: String
     @ViewBuilder var content: Content
 
-    @State private var isRevealed = false
+    @State private var isRevealed = OnboardingReveal.startsRevealed
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        // Header at the top, controls centred in whatever is left: the icon,
+        // title and message then land in the same place on every step, so
+        // moving through the flow doesn't shuffle them about, while the
+        // controls — which vary a lot in height — still sit in the middle of
+        // their own space rather than clinging to the text above them.
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 10) {
                 icon
@@ -187,9 +207,13 @@ struct OnboardingStepLayout<Content: View>: View {
             }
 
             content
+                // `.leading` is (horizontal: leading, vertical: center) — the
+                // one alignment that keeps the controls left-aligned while
+                // centring them in the space below the header.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .onboardingReveal(2, isRevealed: isRevealed, reduceMotion: reduceMotion)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .task { await OnboardingReveal.begin { isRevealed = true } }
     }
 
@@ -232,6 +256,10 @@ extension Color {
 /// The staggered entrance shared by the step layout and the welcome screen.
 @MainActor
 enum OnboardingReveal {
+    /// Only ever set by the render probe, which photographs a single frame
+    /// and so needs the views to begin in their settled state.
+    static var startsRevealed = false
+
     /// Deferred by a beat, and animated: flipping the flag inside the same
     /// update that first shows the view gives SwiftUI no "before" state to
     /// animate from, so the symbol would simply appear instead of drawing.
@@ -249,7 +277,10 @@ extension View {
     /// it. Reduce Motion keeps the fade but drops the rise and the stagger —
     /// content still arrives, it just doesn't travel.
     func onboardingReveal(_ index: Int, isRevealed: Bool, reduceMotion: Bool) -> some View {
-        opacity(isRevealed ? 1 : 0)
+        // Reduce Motion shows content immediately rather than waiting for the
+        // reveal to be triggered: the sequence is the thing being reduced, and
+        // holding the page blank for a beat first is worse than not animating.
+        opacity(isRevealed || reduceMotion ? 1 : 0)
             .offset(y: isRevealed || reduceMotion ? 0 : 8)
             .animation(
                 reduceMotion

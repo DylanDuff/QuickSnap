@@ -103,6 +103,12 @@ enum OnboardingRenderProbe {
 
     static func runIfEnabled() {
         guard let directory = outputDirectory else { return }
+        // A render captures one frame, synchronously, before any `.task` has
+        // fired — so without this every step photographs mid-reveal at
+        // opacity 0, an empty page that reads as a layout bug.
+        // `accessibilityReduceMotion` can't be forced instead: it's a
+        // read-only environment value.
+        OnboardingReveal.startsRevealed = true
         Task {
             render(OnboardingView(onFinish: {}), named: "0-flow", to: directory)
             // The later steps in situ: standalone renders don't exercise the
