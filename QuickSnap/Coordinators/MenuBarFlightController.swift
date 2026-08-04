@@ -22,8 +22,20 @@ final class MenuBarFlightController {
     static let shared = MenuBarFlightController()
 
     private var panel: NSPanel?
+    /// Identifies the flight in progress, so a cancelled one's animation
+    /// completions can't still reveal the menu bar icon after the fact.
+    private var currentFlight: UUID?
 
     private init() {}
+
+    /// Called off — the icon goes back to where it was and the real item
+    /// stays hidden. Used when the user steps back to the welcome screen.
+    func cancel() {
+        currentFlight = nil
+        panel?.orderOut(nil)
+        panel?.close()
+        panel = nil
+    }
 
     /// `source` is in screen coordinates. `completion` reveals the real item.
     func fly(from source: NSRect, completion: @escaping () -> Void) {
@@ -68,20 +80,25 @@ final class MenuBarFlightController {
         panel.alphaValue = 0
         panel.orderFrontRegardless()
         self.panel = panel
+        let flight = UUID()
+        currentFlight = flight
 
         // Fade in where the label's icon was, so it reads as that icon
         // lifting off rather than a new one appearing.
         NSAnimationContext.animate(.easeOut(duration: 0.12)) {
             panel.animator().alphaValue = 1
         } completion: { [weak self] in
-            self?.travel(panel, to: target, completion: completion)
+            guard self?.currentFlight == flight else { return }
+            self?.travel(panel, to: target, flight: flight, completion: completion)
         }
     }
 
-    private func travel(_ panel: NSPanel, to target: NSRect, completion: @escaping () -> Void) {
+    private func travel(_ panel: NSPanel, to target: NSRect, flight: UUID, completion: @escaping () -> Void) {
         NSAnimationContext.animate(Motion.panelSpring) {
             panel.animator().setFrame(target, display: true)
         } completion: { [weak self] in
+            guard self?.currentFlight == flight else { return }
+            self?.currentFlight = nil
             // The real item appears in the same turn the flown icon goes, so
             // there's never two of them or none of them.
             completion()

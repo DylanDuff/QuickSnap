@@ -74,6 +74,10 @@ final class OnboardingCoordinator: NSObject {
                 onFinish: { [weak self] in self?.finish() },
                 onSendIconToMenuBar: { [weak self] frameInWindow in
                     self?.sendIconToMenuBar(from: frameInWindow)
+                },
+                onReturnToWelcome: {
+                    MenuBarFlightController.shared.cancel()
+                    MenuBarPresence.shared.showsIcon = false
                 }
             )
         )

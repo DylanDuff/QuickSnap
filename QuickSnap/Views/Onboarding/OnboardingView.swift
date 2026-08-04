@@ -22,6 +22,9 @@ struct OnboardingView: View {
     /// window coordinates. The coordinator owns this because the window is
     /// what turns those into screen coordinates.
     var onSendIconToMenuBar: ((CGRect) -> Void)?
+    /// Puts things back as they were on the welcome screen: the menu bar
+    /// icon hidden again, ready to be sent up a second time.
+    var onReturnToWelcome: (() -> Void)?
     /// Which step to open on. Only ever non-default from the render probe,
     /// which needs to photograph the later steps in situ.
     var initialStep: Step = .welcome
@@ -34,10 +37,12 @@ struct OnboardingView: View {
     init(
         onFinish: @escaping () -> Void,
         onSendIconToMenuBar: ((CGRect) -> Void)? = nil,
+        onReturnToWelcome: (() -> Void)? = nil,
         initialStep: Step = .welcome
     ) {
         self.onFinish = onFinish
         self.onSendIconToMenuBar = onSendIconToMenuBar
+        self.onReturnToWelcome = onReturnToWelcome
         self.initialStep = initialStep
         _step = State(initialValue: initialStep)
     }
@@ -192,6 +197,17 @@ struct OnboardingView: View {
 
     private func goBack() {
         guard let previous = Step(rawValue: step.rawValue - 1) else { return }
+        // Arriving back at the welcome screen resets it rather than playing
+        // the flight in reverse: the icon is simply back in its row and the
+        // menu bar is empty again, as if it had never left. Unanimated on
+        // purpose — a reverse flight would be a second thing to watch on the
+        // way to somewhere the user has already been.
+        if previous == .welcome {
+            onReturnToWelcome?()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { isIconInFlight = false }
+        }
         withAnimation(reduceMotion ? nil : Motion.revealSpring) { step = previous }
     }
 }
