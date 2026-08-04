@@ -76,9 +76,11 @@ struct OnboardingView: View {
         .background {
             ZStack {
                 Rectangle().fill(.regularMaterial)
-                if step == .welcome {
-                    AmbientUnderglow()
-                }
+                // Mounted for the whole flow, not just the welcome step: it
+                // stays put as the steps change, so the reveal plays once on
+                // opening and the light carries through rather than snapping
+                // off at Continue.
+                AmbientUnderglow()
             }
             .ignoresSafeArea()
         }
