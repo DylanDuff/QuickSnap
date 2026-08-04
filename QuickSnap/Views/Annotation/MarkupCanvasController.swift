@@ -144,7 +144,169 @@ final class MarkupCanvasController: nonisolated ObservableObject {
     }
 
     weak var viewController: PaperMarkupViewController? {
-        didSet { applyTool() }
+        didSet {
+            applyTool()
+            currentSnapshot = snapshot()
+        }
+    }
+
+    // MARK: - Undo history
+
+    /// One point in the edit history. Everything a step can change is in
+    /// here, so restoring is a single assignment of all three — in
+    /// particular a crop, which moves the markup *and* replaces the image,
+    /// and would otherwise leave restored annotations in the wrong
+    /// coordinate space.
+    ///
+    /// `PaperMarkup` is a value type, so a snapshot is just the value; the
+    /// image is a reference, but `CGImage` is immutable and crops/redactions
+    /// always produce a new one, so holding it is enough.
+    private struct CanvasSnapshot {
+        let markup: PaperMarkup?
+        let baseImage: CGImage
+        let canvasBounds: CGRect
+    }
+
+    /// Steps behind and ahead of where the canvas is now.
+    private var undoStack: [CanvasSnapshot] = []
+    private var redoStack: [CanvasSnapshot] = []
+    /// Where the canvas is now — pushed onto one stack when the other is
+    /// popped, and the thing every recorded step is measured against.
+    private var currentSnapshot: CanvasSnapshot?
+
+    /// True while *we* are assigning markup, so the change report that comes
+    /// back from that assignment isn't recorded as a new user edit (verified
+    /// with the probe: a host assignment re-enters the delegate exactly
+    /// once). Cleared on the next main-queue turn rather than straight after
+    /// the assignment, because the report can arrive either way round.
+    private var isApplyingSnapshot = false
+
+    /// A screenshot markup session is short and the snapshots are small
+    /// (a serialized stroke is on the order of a kilobyte), but the base
+    /// image isn't — cap the history so a long crop-heavy session can't
+    /// accumulate an unbounded number of full-size images.
+    private static let undoHistoryLimit = 50
+
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
+
+    private func snapshot() -> CanvasSnapshot {
+        CanvasSnapshot(
+            markup: viewController?.markup,
+            baseImage: baseImage,
+            canvasBounds: canvasBounds
+        )
+    }
+
+    /// A change the *user* made on the canvas (a stroke, a move, a delete)
+    /// has just been reported: the state before it is what an undo goes back
+    /// to. Doing something new drops the redo branch, as everywhere else.
+    ///
+    /// The canvas reports exactly one change per stroke (verified with the
+    /// probe), so this needs no coalescing — one report is one undo step.
+    private func recordUserEdit() {
+        guard let previous = currentSnapshot else {
+            currentSnapshot = snapshot()
+            return
+        }
+        let current = snapshot()
+        currentSnapshot = current
+        // The canvas reports a change once when it first attaches, which
+        // isn't an edit and would leave a new window offering to undo
+        // nothing (measured — it arrived before the first stroke and left
+        // Undo enabled on an untouched capture). A report that has no drawn
+        // content on either side of it can't be a user edit worth keeping:
+        // erasing the last markup still has content in `previous`, so it
+        // records normally.
+        guard hasDrawnContent(previous.markup) || hasDrawnContent(current.markup) else { return }
+        push(previous)
+    }
+
+    private func hasDrawnContent(_ markup: PaperMarkup?) -> Bool {
+        guard let frame = markup?.contentsRenderFrame else { return false }
+        return !frame.isNull && !frame.isEmpty
+    }
+
+    /// Runs a host-side edit (an insertion, a crop) as one undo step.
+    ///
+    /// These assign `markup` themselves, which re-enters the change delegate
+    /// — hence the suppression: without it the same edit would be recorded
+    /// twice, once here and once from its own echo.
+    private func recordingUndoStep(_ mutate: () -> Void) {
+        let previous = currentSnapshot ?? snapshot()
+        isApplyingSnapshot = true
+        mutate()
+        push(previous)
+        currentSnapshot = snapshot()
+        clearSnapshotSuppression()
+    }
+
+    private func push(_ snapshot: CanvasSnapshot) {
+        undoStack.append(snapshot)
+        if undoStack.count > Self.undoHistoryLimit {
+            undoStack.removeFirst(undoStack.count - Self.undoHistoryLimit)
+        }
+        redoStack.removeAll()
+        updateUndoAvailability()
+    }
+
+    /// The change report from our own assignment can arrive during the call
+    /// or on the next main-queue turn, so the flag has to outlive the
+    /// statement that set it.
+    private func clearSnapshotSuppression() {
+        DispatchQueue.main.async { [weak self] in
+            self?.isApplyingSnapshot = false
+        }
+    }
+
+    func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(currentSnapshot ?? snapshot())
+        apply(previous)
+    }
+
+    func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(currentSnapshot ?? snapshot())
+        apply(next)
+    }
+
+    /// Puts a snapshot back. Assigning `markup` is what restores annotations
+    /// (verified with the probe: the canvas takes the old value and stays
+    /// editable); the image and bounds are published, so a crop being undone
+    /// flows out to the canvas view and the window's aspect lock the same
+    /// way applying the crop did.
+    private func apply(_ snapshot: CanvasSnapshot) {
+        pendingInsertion = nil
+        isCropActive = false
+
+        isApplyingSnapshot = true
+        if snapshot.baseImage !== baseImage {
+            baseImage = snapshot.baseImage
+        }
+        if snapshot.canvasBounds != canvasBounds {
+            canvasBounds = snapshot.canvasBounds
+            visibleCanvasFrame = snapshot.canvasBounds
+        }
+        viewController?.markup = snapshot.markup
+        currentSnapshot = snapshot
+        clearSnapshotSuppression()
+        updateUndoAvailability()
+    }
+
+    /// Drops the history outright. Used by redaction: the snapshots behind
+    /// it hold the *unredacted* image, so an undo would put the credential
+    /// back on screen — see `redact`.
+    private func clearUndoHistory() {
+        undoStack.removeAll()
+        redoStack.removeAll()
+        currentSnapshot = snapshot()
+        updateUndoAvailability()
+    }
+
+    private func updateUndoAvailability() {
+        canUndo = !undoStack.isEmpty
+        canRedo = !redoStack.isEmpty
     }
 
     /// Defaults are passed in (from the Markup settings, read by
@@ -168,7 +330,7 @@ final class MarkupCanvasController: nonisolated ObservableObject {
         let presets = Self.strokeWidthPresets(in: strokeWidthRange)
         strokeWidth = presets[min(max(defaultStrokeStep, 0), presets.count - 1)]
 
-        if ZoomResizeProbe.isEnabled {
+        if ZoomResizeProbe.isEnabled || UndoProbe.isEnabled {
             ZoomResizeProbe.currentCanvas = self
         }
     }
@@ -274,10 +436,16 @@ final class MarkupCanvasController: nonisolated ObservableObject {
 
     /// Inserted markup lands selected-adjacent workflows: switch to select
     /// mode afterwards so the user can immediately move/resize it.
+    ///
+    /// Recorded as one undo step — insertions used to be the exception that
+    /// couldn't be taken back, which stopped being acceptable once there was
+    /// an undo to take them back with.
     private func mutateMarkup(_ mutate: (inout PaperMarkup, PaperMarkupViewController) -> Void) {
         guard let viewController, var markup = viewController.markup else { return }
-        mutate(&markup, viewController)
-        viewController.markup = markup
+        recordingUndoStep {
+            mutate(&markup, viewController)
+            viewController.markup = markup
+        }
         tool = .select
     }
 
@@ -318,15 +486,21 @@ final class MarkupCanvasController: nonisolated ObservableObject {
             let croppedImage = baseImage.cropping(to: clamped)
         else { return }
 
-        baseImage = croppedImage
-        canvasBounds = CGRect(origin: .zero, size: clamped.size)
-        // MarkupCanvasView re-fits the viewport to the new bounds.
-        visibleCanvasFrame = canvasBounds
+        // One step: the image, the bounds and the shifted markup go back
+        // together or not at all — restoring markup laid out for the cropped
+        // image over the uncropped one would put every annotation in the
+        // wrong place.
+        recordingUndoStep {
+            baseImage = croppedImage
+            canvasBounds = CGRect(origin: .zero, size: clamped.size)
+            // MarkupCanvasView re-fits the viewport to the new bounds.
+            visibleCanvasFrame = canvasBounds
 
-        guard let viewController, var markup = viewController.markup else { return }
-        markup.transformContent(CGAffineTransform(translationX: -clamped.minX, y: -clamped.minY))
-        markup.bounds = canvasBounds
-        viewController.markup = markup
+            guard let viewController, var markup = viewController.markup else { return }
+            markup.transformContent(CGAffineTransform(translationX: -clamped.minX, y: -clamped.minY))
+            markup.bounds = canvasBounds
+            viewController.markup = markup
+        }
     }
 
     // MARK: - Redaction
@@ -340,15 +514,19 @@ final class MarkupCanvasController: nonisolated ObservableObject {
     /// rectangle, and the reason this lives here rather than going through
     /// `insertNewShape`.
     ///
-    /// Not undoable, like crop: PaperKit's undo stack only covers user
-    /// canvas edits, and an undo that could bring a credential back would be
-    /// the wrong feature anyway.
+    /// Deliberately **not** undoable, and it takes the history with it: every
+    /// snapshot behind this point holds the pre-redaction image, so a later
+    /// undo would put the credential back on screen — and then into whatever
+    /// the user exports next. An undo that can un-redact is the wrong
+    /// feature; losing the earlier steps is the price, and redaction is
+    /// normally the last thing done before sending the capture out anyway.
     func redact(_ matches: [SensitiveMatch]) {
         guard !matches.isEmpty else { return }
         baseImage = Redactor.redacting(baseImage, rects: matches.map(\.rect))
 
         let redacted = Set(matches.map(\.id))
         pendingRedactions.removeAll { redacted.contains($0.id) }
+        clearUndoHistory()
     }
 
     /// Blacks out everything found and, when an upload is waiting on this
@@ -436,7 +614,15 @@ extension MarkupCanvasController: @MainActor PaperMarkupViewController.Delegate 
         ZoomResizeProbe.log("delegate: observed \(visibleCanvasFrame.integral)")
     }
 
-    func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {}
+    /// The only signal a user canvas edit (stroke, move, delete) ever gives
+    /// the host — PaperKit exposes no undo of its own, so this is what the
+    /// history is built from. Our own assignments echo back through here
+    /// too, which `isApplyingSnapshot` filters out.
+    func paperMarkupViewControllerDidChangeMarkup(_ paperMarkupViewController: PaperMarkupViewController) {
+        UndoProbe.noteMarkupChanged()
+        guard !isApplyingSnapshot else { return }
+        recordUserEdit()
+    }
     func paperMarkupViewControllerDidChangeSelection(_ paperMarkupViewController: PaperMarkupViewController) {}
     func paperMarkupViewControllerDidBeginDrawing(_ paperMarkupViewController: PaperMarkupViewController) {}
 }

@@ -19,6 +19,8 @@ nonisolated enum MarkupToolbarItem: String, Codable, CaseIterable, Sendable {
     case insert
     case crop
     case redact
+    case undo
+    case redo
     case color
     case stroke
     case copy
@@ -39,6 +41,8 @@ nonisolated enum MarkupToolbarItem: String, Codable, CaseIterable, Sendable {
         case .insert: return "plus.square.on.square"
         case .crop: return "crop"
         case .redact: return "asterisk.circle"
+        case .undo: return "arrow.uturn.backward"
+        case .redo: return "arrow.uturn.forward"
         case .color: return "paintpalette"
         case .stroke: return "scribble.variable"
         case .copy: return "doc.on.doc"
@@ -59,6 +63,8 @@ nonisolated enum MarkupToolbarItem: String, Codable, CaseIterable, Sendable {
         case .insert: return "Insert"
         case .crop: return "Crop"
         case .redact: return "Check for sensitive text"
+        case .undo: return "Undo"
+        case .redo: return "Redo"
         case .color: return "Color"
         case .stroke: return "Stroke size"
         case .copy: return "Copy"

@@ -18,6 +18,9 @@ struct ToolbarIconButton: View {
     var iconWeight: Font.Weight = .medium
     /// Foreground color while not active.
     var tint: Color = .primary
+    /// Dims the icon and stops the click. Custom button labels don't dim
+    /// themselves under `.disabled`, so the tint is applied here too.
+    var isEnabled = true
     let action: () -> Void
 
     @State private var isHovering = false
@@ -29,9 +32,11 @@ struct ToolbarIconButton: View {
                 .frame(width: diameter, height: diameter)
                 .background(Circle().fill(backgroundColor))
                 .foregroundStyle(isActive ? Color.accentColor : tint)
+                .opacity(isEnabled ? 1 : 0.35)
                 .contentShape(Circle())
         }
         .buttonStyle(PressScaleButtonStyle())
+        .disabled(!isEnabled)
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
         }
@@ -40,7 +45,7 @@ struct ToolbarIconButton: View {
     private var backgroundColor: Color {
         if isActive {
             Color.accentColor.opacity(0.25)
-        } else if isHovering {
+        } else if isHovering && isEnabled {
             Color.primary.opacity(0.08)
         } else {
             Color.clear

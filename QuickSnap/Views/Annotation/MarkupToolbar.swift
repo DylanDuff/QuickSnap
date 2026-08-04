@@ -114,6 +114,20 @@ struct MarkupToolbar: View {
         case .insert: insertButton
         case .crop: cropButton
         case .redact: redactionButton
+        case .undo:
+            ToolbarIconButton(
+                systemImage: "arrow.uturn.backward",
+                isEnabled: controller.canUndo,
+                action: controller.undo
+            )
+            .help("Undo (⌘Z)")
+        case .redo:
+            ToolbarIconButton(
+                systemImage: "arrow.uturn.forward",
+                isEnabled: controller.canRedo,
+                action: controller.redo
+            )
+            .help("Redo (⇧⌘Z)")
         case .color: colorButton
         case .stroke: strokeButton
         case .copy:

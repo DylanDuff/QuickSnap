@@ -48,28 +48,44 @@ struct AnnotationView: View {
     let onSaveAs: (CGImage) -> Void
     let onCanvasAspectChanged: (CGFloat) -> Void
 
-    /// ⌘S / ⌘⇧S, always available regardless of what the toolbar contains.
+    /// ⌘S / ⌘⇧S and ⌘Z / ⌘⇧Z, always available regardless of what the
+    /// toolbar contains.
     ///
     /// This is what makes a freely customisable toolbar safe: the layout
     /// editor lets every export button be removed, and without a shortcut
     /// that would strand an annotated screenshot in a window it can't leave.
+    /// Undo and redo lean on the same arrangement from the other side —
+    /// they're left *out* of the default toolbar, because the keys are how
+    /// most people will reach them.
     ///
-    /// Deliberately **no ⌘C**. Copy would be the obvious third, but the
-    /// canvas is a remote PaperKit view where ⌘C means "copy the selected
-    /// text or markup" while a text box is being edited — and a SwiftUI
-    /// `keyboardShortcut` resolves through `performKeyEquivalent`, *before*
-    /// the remote view ever sees the key. Taking ⌘C would quietly break text
-    /// editing to guard against a case ⌘S already covers.
+    /// Taking ⌘Z from the canvas costs nothing: the remote PaperKit view
+    /// implements no undo of its own (measured — a synthesized ⌘Z over a
+    /// freshly drawn stroke changed nothing at all, `Probe/UndoProbe.swift`),
+    /// so there is no built-in behaviour here to shadow.
+    ///
+    /// Deliberately **no ⌘C**, though. Copy would be the obvious extra, but
+    /// ⌘C means "copy the selection" while a text box is being edited — and
+    /// a SwiftUI `keyboardShortcut` resolves through `performKeyEquivalent`,
+    /// *before* the remote view ever sees the key. Taking ⌘C would quietly
+    /// break text editing to guard against a case ⌘S already covers.
     ///
     /// They live here, in the window's own content, rather than in the
     /// toolbar pill: that panel is `canBecomeKey == false`, so it never
     /// receives key events at all.
-    private var saveShortcuts: some View {
+    private var keyboardShortcuts: some View {
         Group {
             Button("") { export(then: onSave) }
                 .keyboardShortcut("s", modifiers: .command)
             Button("") { export(then: onSaveAs) }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+            // Disabled when there's nothing to go back to, so an empty
+            // history doesn't swallow the key with a no-op.
+            Button("") { canvas.undo() }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!canvas.canUndo)
+            Button("") { canvas.redo() }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!canvas.canRedo)
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -121,7 +137,7 @@ struct AnnotationView: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(.regularMaterial)
             )
-            .background(saveShortcuts)
+            .background(keyboardShortcuts)
             .ignoresSafeArea(.container, edges: .top)
             .onChange(of: canvas.canvasBounds) { _, bounds in
                 guard bounds.height > 0 else { return }
