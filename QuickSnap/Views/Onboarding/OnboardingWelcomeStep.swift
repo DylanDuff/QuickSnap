@@ -52,7 +52,12 @@ struct OnboardingWelcomeStep: View {
 
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Behind, not over: the shader replaces the layer it's applied to,
+        // and anything drawn above the content would sit on top of the copy.
+        .background(alignment: .bottom) {
+            AmbientUnderglow()
+        }
     }
 }
 
