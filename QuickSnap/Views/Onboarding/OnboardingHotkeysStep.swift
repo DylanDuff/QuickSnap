@@ -26,7 +26,7 @@ struct OnboardingHotkeysStep: View {
         OnboardingStepLayout(
             systemImage: "command",
             title: "Keyboard shortcuts",
-            message: "These work in any app while QuickSnap is running. Click one to change it, or ✕ to give the combination back to your other apps."
+            message: "These work in any app while QuickSnap is running. Click one to change it."
         ) {
             VStack(spacing: 0) {
                 ForEach(Array(HotkeyAction.allCases.filter(\.isAvailable).enumerated()), id: \.element) { index, action in

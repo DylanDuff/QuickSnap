@@ -36,7 +36,7 @@ struct OnboardingWelcomeStep: View {
                     .font(.system(size: 26, weight: .semibold))
                     .onboardingReveal(0, isRevealed: isRevealed, reduceMotion: reduceMotion)
 
-                Text("Screenshots of an area, a window, or the whole screen — marked up, saved, and on your clipboard without leaving what you were doing.")
+                Text("Screenshots that just work.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -46,9 +46,12 @@ struct OnboardingWelcomeStep: View {
             }
 
             Label {
-                Text("QuickSnap lives in the menu bar — look for the camera icon up top. There's no Dock icon.")
+                Text("QuickSnap lives in the menu bar.")
             } icon: {
-                Image(systemName: "menubar.arrow.up.rectangle")
+                // The menu bar item's own symbol (`QuickSnapApp`'s
+                // `MenuBarExtra`), so the thing to look for up there is the
+                // thing shown here.
+                Image(systemName: "camera.viewfinder")
             }
             .font(.footnote)
             .foregroundStyle(.secondary)

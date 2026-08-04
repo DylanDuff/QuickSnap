@@ -28,7 +28,7 @@ struct OnboardingSavingStep: View {
         OnboardingStepLayout(
             systemImage: "square.and.arrow.down",
             title: "Saving screenshots",
-            message: "Captures land in a folder and on your clipboard. Both are optional — plenty of people only ever paste."
+            message: "Captures land in a folder and on your clipboard by default."
         ) {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
