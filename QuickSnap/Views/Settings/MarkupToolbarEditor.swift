@@ -37,8 +37,12 @@ struct MarkupToolbarEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             pill
-            hint
             tray
+            // Under the tray rather than over it: the instruction and the
+            // Reset it sits beside are both about the whole editor, so they
+            // belong after the two things they refer to rather than wedged
+            // between them.
+            hint
         }
     }
 
