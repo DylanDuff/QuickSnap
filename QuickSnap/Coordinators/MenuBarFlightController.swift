@@ -58,9 +58,12 @@ final class MenuBarFlightController {
         let icon = NSImageView()
         icon.image = MenuBarPresence.iconImage()
         icon.contentTintColor = .labelColor
-        // Fills the landing rect exactly, matching however the menu bar
-        // renders it, rather than fitting inside it and coming up short.
-        icon.imageScaling = .scaleAxesIndependently
+        // Proportional, never `.scaleAxesIndependently`: the image isn't the
+        // same aspect as the rect it lands in, so filling it stretches the
+        // glyph for the whole flight. Fitting matches what the menu bar does
+        // with the same image anyway — SwiftUI fits it into an 18 × 18
+        // rendering, so fitting into the same rect lands on the same pixels.
+        icon.imageScaling = .scaleProportionallyUpOrDown
         panel.contentView = icon
         panel.alphaValue = 0
         panel.orderFrontRegardless()
