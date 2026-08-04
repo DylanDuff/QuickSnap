@@ -79,6 +79,7 @@ final class CaptureCoordinator: ObservableObject {
         // be answered — not mid-capture, under a full-screen overlay.
         OnboardingRenderProbe.runIfEnabled()
         OnboardingRenderProbe.inspectWindowIfEnabled()
+        OnboardingRenderProbe.openAndStayIfEnabled()
         OnboardingCoordinator.shared.showIfFirstRun()
         UndoProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)
         FreeZoomProbe.startIfEnabled(annotationCoordinator: annotationCoordinator)

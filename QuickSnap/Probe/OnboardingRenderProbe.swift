@@ -30,6 +30,15 @@ enum OnboardingRenderProbe {
     /// Window content size, minus the footer the steps don't draw.
     private static let stepSize = CGSize(width: 620, height: 560)
 
+    /// Opens the flow and leaves it open, for working on it: no first-run
+    /// flag to clear, no clicking through Settings after every build.
+    /// Closing the window doesn't quit — QuickSnap carries on in the menu
+    /// bar, and Settings → General → Setup reopens it.
+    static func openAndStayIfEnabled() {
+        guard ProcessInfo.processInfo.environment["QUICKSNAP_ONBOARDING_OPEN"] == "1" else { return }
+        OnboardingCoordinator.shared.show()
+    }
+
     /// Opens the real window and reports what actually decided its size —
     /// the window's own frame, the constraints an `NSHostingView` may have
     /// pushed onto it, and what SwiftUI thinks the content wants.
