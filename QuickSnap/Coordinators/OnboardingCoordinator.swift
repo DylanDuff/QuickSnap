@@ -52,6 +52,13 @@ final class OnboardingCoordinator: NSObject {
         window.title = "Welcome to QuickSnap"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        // Both halves, same as the Settings and annotation windows: a
+        // SwiftUI Material samples the *window's* backdrop, so on an opaque
+        // window it has nothing to blur and renders as a flat tint instead
+        // of glass. Clearing the background without also clearing `isOpaque`
+        // leaves black behind everything the system composites over it.
+        window.isOpaque = false
+        window.backgroundColor = .clear
         // Deliberately not `isMovableByWindowBackground` — see the same note
         // in `QuickSnapApp`'s window configuration. It would eat the
         // drag-to-reorder in the toolbar step, which is the whole point of
