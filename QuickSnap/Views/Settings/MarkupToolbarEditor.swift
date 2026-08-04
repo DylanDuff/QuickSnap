@@ -185,6 +185,9 @@ struct MarkupToolbarEditor: View {
                     .controlSize(.small)
             }
         }
+        // Matches the tray's own inset, so this line starts under
+        // "Available" and the chips rather than 10 pt to their left.
+        .padding(.horizontal, 10)
     }
 
     // MARK: - Chips
