@@ -43,7 +43,7 @@ struct OnboardingWelcomeStep: View {
                     .font(.system(size: 26, weight: .semibold))
                     .onboardingReveal(0, isRevealed: isRevealed, reduceMotion: reduceMotion)
 
-                Text("The next few screens set up the handful of things worth deciding now. You can skip any of them and change everything later in Settings.")
+                Text("The next few screens set up the handful of things worth deciding now.\nYou can skip any of them and change everything later in Settings.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

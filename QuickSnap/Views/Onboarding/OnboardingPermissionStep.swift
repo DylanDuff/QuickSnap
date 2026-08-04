@@ -82,7 +82,7 @@ struct OnboardingPermissionStep: View {
 
     private var calloutRelaunch: some View {
         Label {
-            Text("If you've just allowed it in System Settings and captures still fail, quit and reopen QuickSnap — macOS often doesn't hand a new permission to an app that's already running.")
+            Text("If you've just allowed it in System Settings and captures still fail, quit and reopen QuickSnap. macOS often doesn't hand a new permission to an app that's already running.")
         } icon: {
             Image(systemName: "arrow.clockwise")
         }
