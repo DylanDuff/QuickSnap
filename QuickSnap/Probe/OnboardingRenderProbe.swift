@@ -51,9 +51,45 @@ enum OnboardingRenderProbe {
                 print("[onboarding-window] contentView=\(type(of: hosting)) bounds=\(hosting.bounds)")
                 print("[onboarding-window] fittingSize=\(hosting.fittingSize) intrinsic=\(hosting.intrinsicContentSize)")
             }
+
+            // Dragging the content must NOT move the window: it would eat
+            // the drag-to-reorder on the toolbar step. The title strip must
+            // still move it, or the window can't be repositioned at all.
+            let beforeContentDrag = window.frame.origin
+            await drag(fromCocoa: CGPoint(x: window.frame.midX, y: window.frame.midY - 40), byX: 90)
+            try? await Task.sleep(for: .seconds(0.5))
+            let movedByContent = hypot(
+                window.frame.origin.x - beforeContentDrag.x,
+                window.frame.origin.y - beforeContentDrag.y
+            )
+            print("[onboarding-window] \(movedByContent < 5 ? "PASS" : "FAIL") content drag left the window put (moved \(Int(movedByContent))pt)")
+
+            let beforeTitleDrag = window.frame.origin
+            await drag(fromCocoa: CGPoint(x: window.frame.midX, y: window.frame.maxY - 10), byX: 60)
+            try? await Task.sleep(for: .seconds(0.5))
+            let movedByTitle = window.frame.origin.x - beforeTitleDrag.x
+            print("[onboarding-window] \(movedByTitle > 30 ? "PASS" : "FAIL") title strip still drags the window (moved \(Int(movedByTitle))pt)")
+
             fflush(stdout)
             NSApp.terminate(nil)
         }
+    }
+
+    private static func drag(fromCocoa start: CGPoint, byX deltaX: CGFloat) async {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let origin = CGPoint(x: start.x, y: primaryHeight - start.y)
+        post(.leftMouseDown, at: origin)
+        for step in 1...10 {
+            let progress = CGFloat(step) / 10
+            post(.leftMouseDragged, at: CGPoint(x: origin.x + deltaX * progress, y: origin.y))
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        post(.leftMouseUp, at: CGPoint(x: origin.x + deltaX, y: origin.y))
+    }
+
+    private static func post(_ type: CGEventType, at point: CGPoint) {
+        CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
+            .post(tap: .cghidEventTap)
     }
 
     static func runIfEnabled() {

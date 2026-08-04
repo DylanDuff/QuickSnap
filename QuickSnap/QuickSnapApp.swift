@@ -190,7 +190,13 @@ private final class WindowConfiguringView: NSView {
         // so a flexible content frame alone leaves the drag corners inert.
         // The size *range* still comes from SwiftUI's frame.
         window.styleMask.insert(.resizable)
-        window.isMovableByWindowBackground = true
+        // Deliberately **not** `isMovableByWindowBackground`. With the title
+        // bar hidden it looks like the obvious way to let the window be
+        // dragged from anywhere, but AppKit starts a window drag on any
+        // mouse-down that isn't claimed by a control — which silently ate the
+        // drag-to-reorder in the markup toolbar editor: grabbing an item
+        // moved the window instead. The title bar strip is still draggable,
+        // which is enough.
         // Both halves are required: a clear background on a window that's
         // still opaque leaves black behind everything the system composites
         // over it — the scroll-edge toolbar blur rendered as a solid black

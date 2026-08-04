@@ -52,7 +52,10 @@ final class OnboardingCoordinator: NSObject {
         window.title = "Welcome to QuickSnap"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
+        // Deliberately not `isMovableByWindowBackground` — see the same note
+        // in `QuickSnapApp`'s window configuration. It would eat the
+        // drag-to-reorder in the toolbar step, which is the whole point of
+        // that screen. The (transparent) title bar strip still drags.
         window.isReleasedWhenClosed = false
         window.delegate = self
         // Deliberately not `.resizable` and not `.miniaturizable`: the flow is
