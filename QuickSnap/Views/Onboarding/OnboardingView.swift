@@ -35,20 +35,32 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.horizontal, 36)
-                .padding(.top, step == .welcome ? 0 : 36)
+            // The step and its navigation are one block: the buttons belong
+            // to the page they act on and sit just under its content, rather
+            // than pinned to the window's bottom edge where they read as
+            // window chrome and leave a long empty gap on the shorter steps.
+            VStack(spacing: 26) {
+                content
+                navigationButtons
+            }
+            .padding(.horizontal, 36)
+            .padding(.top, step == .welcome ? 0 : 36)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: step == .welcome ? .center : .top
+            )
 
-            footer
+            progressDots
+                .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // The underglow lives at the root, not behind the welcome step: a
         // step is drawn *inside* the horizontal padding above, so a
         // background there stopped 36 pt short of each edge and cut off at
         // the footer, which read as the glow being clipped. Here it's
-        // full-bleed and runs behind the footer, which is translucent so it
-        // shows through.
+        // full-bleed and runs all the way down: there is no footer bar over
+        // it any more, only the dots.
         .background {
             ZStack {
                 Rectangle().fill(.regularMaterial)
@@ -73,7 +85,7 @@ struct OnboardingView: View {
         }
     }
 
-    private var footer: some View {
+    private var navigationButtons: some View {
         HStack(spacing: 12) {
             if step != .welcome {
                 Button("Back", action: goBack)
@@ -95,20 +107,6 @@ struct OnboardingView: View {
 
             Button(step.isLast ? "Done" : "Continue", action: goForward)
                 .keyboardShortcut(.defaultAction)
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 18)
-        // Centred against the footer itself, not wedged between spacers: the
-        // buttons on either side have different widths (and Back disappears
-        // on the first step), so a flex layout puts the dots visibly off
-        // centre and shifts them as you move through the flow.
-        .overlay { progressDots }
-        // Thin enough to read as glass over the underglow rather than a bar
-        // sitting on top of it — the glow runs the full height of the window
-        // behind this.
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .top) {
-            Divider()
         }
     }
 

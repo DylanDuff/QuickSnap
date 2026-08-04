@@ -11,9 +11,10 @@ import SwiftUI
 /// bar has effectively lost the app.
 struct OnboardingWelcomeStep: View {
     var body: some View {
+        // Natural height, no internal spacers: the root centres this and its
+        // navigation buttons together, so anything that expanded here would
+        // shove the buttons back down to the window's edge.
         VStack(spacing: 22) {
-            Spacer(minLength: 24)
-
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 84, height: 84)
@@ -49,10 +50,8 @@ struct OnboardingWelcomeStep: View {
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 }
 
