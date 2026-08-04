@@ -102,10 +102,15 @@ struct MarkupToolbarEditor: View {
                     }
             }
 
-            // The tail target, so something can be dropped at the end.
+            // The tail target, so something can be dropped at the end. Kept
+            // narrow deliberately: it's invisible, and now that the capsule
+            // hugs its contents any width here reads as dead space on the
+            // right. The capsule's own trailing padding sits under the
+            // cursor either side of it, so the drop is easier to hit than
+            // the 12 pt suggests.
             insertionMarker(at: layout.items.count)
             Color.clear
-                .frame(width: 40, height: Layout.chip)
+                .frame(width: 12, height: Layout.chip)
                 .contentShape(Rectangle())
                 .dropDestination(for: DraggedToolbarItem.self) { payloads, _ in
                     move(payloads, to: layout.items.count)
