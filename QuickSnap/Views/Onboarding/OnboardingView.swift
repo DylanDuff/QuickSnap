@@ -50,11 +50,10 @@ struct OnboardingView: View {
             // height. They hold still now, just above the dots.
             content
             .padding(.horizontal, 36)
-            // Enough top padding to keep the tallest step clear of the
-            // traffic lights and the Skip button in the title-bar strip;
-            // since the block is centred, it reads as a slight downward
-            // nudge rather than as a margin.
-            .padding(.top, step == .welcome ? 0 : 28)
+            // Clears the title-bar strip (traffic lights, Skip) and then
+            // some: the header sits at the top of every step now, and hard
+            // against that clearance it read as crowded.
+            .padding(.top, step == .welcome ? 0 : 68)
             .frame(
                 maxWidth: .infinity,
                 maxHeight: .infinity,
