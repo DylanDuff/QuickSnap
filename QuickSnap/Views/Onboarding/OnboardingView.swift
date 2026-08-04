@@ -43,7 +43,21 @@ struct OnboardingView: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        // The underglow lives at the root, not behind the welcome step: a
+        // step is drawn *inside* the horizontal padding above, so a
+        // background there stopped 36 pt short of each edge and cut off at
+        // the footer, which read as the glow being clipped. Here it's
+        // full-bleed and runs behind the footer, which is translucent so it
+        // shows through.
+        .background {
+            ZStack {
+                Rectangle().fill(.regularMaterial)
+                if step == .welcome {
+                    AmbientUnderglow()
+                }
+            }
+            .ignoresSafeArea()
+        }
         .ignoresSafeArea(.container, edges: .top)
     }
 
@@ -89,7 +103,10 @@ struct OnboardingView: View {
         // on the first step), so a flex layout puts the dots visibly off
         // centre and shifts them as you move through the flow.
         .overlay { progressDots }
-        .background(.thinMaterial)
+        // Thin enough to read as glass over the underglow rather than a bar
+        // sitting on top of it — the glow runs the full height of the window
+        // behind this.
+        .background(.ultraThinMaterial)
         .overlay(alignment: .top) {
             Divider()
         }
